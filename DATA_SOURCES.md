@@ -59,6 +59,20 @@
 | 한국 통관 진행 단계 | 관세청 화물통관진행정보 OpenAPI | 무료 실시간 조회다. UNI-PASS 가입·API 신청과 화물관리번호 또는 선하증권 번호가 필요하다. [공공데이터포털](https://www.data.go.kr/data/15126268/openapi.do) |
 | 결제 승인·실패·환불 흐름 검증 | 토스페이먼츠 테스트 API | 테스트 키로 결제와 취소 흐름을 검증한다. 실제 거래를 보려면 해당 가맹점의 운영 권한이 필요하다. [공식 테스트 환경 안내](https://docs.tosspayments.com/guides/v2/get-started/environment) |
 
+### 국내·해외 결제 API의 무료 범위와 가맹점 계약 시점
+
+2026-11-23 공식 문서 기준. 아래는 판매자가 대금을 받는 경로별 연동 범위다. FCC가 구매자를 판매처 결제창으로 안내하는 단계에서는 판매처가 자신의 가맹점 계정을 사용한다. FCC 서버가 승인·취소·환불을 직접 요청하려면 해당 상점의 권한이 필요하다. FCC가 직접 판매·수납하는 경우에는 FCC를 기준으로 운영 자격을 확인한다.
+
+| 결제 경로 | 계약 전 무료로 구현·검증할 범위 | 계약·운영 권한이 필요한 시점과 비용 | 공식 근거 |
+| --- | --- | --- | --- |
+| 국내 카드 | 토스페이먼츠 개발용 테스트 키로 결제창 호출, 가상 승인, 상태 조회·취소와 오류 처리를 검증한다. | 실제 카드 승인과 매출 정산 전 전자결제 가맹점 계약, 카드사 심사, 해당 상점의 라이브 키가 필요하다. 운영 거래에는 계약 수수료가 적용된다. | [테스트 환경](https://docs.tosspayments.com/guides/v2/get-started/environment), [계약·심사 절차](https://docs.tosspayments.com/guides/v2/get-started/payment-products) |
+| 국내 간편결제 | 같은 PG 경유라도 지갑별 조건이 다르다. 토스페이·네이버페이는 개발 연동 체험 상점의 테스트 키로 결제 흐름을 시험할 수 있다. | **카카오페이는 이 PG 경로에서 테스트부터** 계약 후 발급된 상점 ID(MID)의 테스트 키가 필요하다. 실제 수납은 해당 간편결제 수단이 계약·활성화된 상점의 라이브 키와 운영 수수료 조건을 따른다. | [간편결제별 테스트 키 조건](https://docs.tosspayments.com/guides/v2/get-started/environment), [상점 계약과 결제수단 설정](https://docs.tosspayments.com/guides/v2/payment-widget/admin) |
+| 해외 PG | PayPal Checkout 샌드박스의 판매자·구매자 테스트 계정으로 주문 생성, 구매자 승인, 금액 수납(capture), 수납 건의 환불을 모의 처리한다. | 실제 대금을 받으려면 판매자가 운영용 Business 계정으로 가입하고 해당 국가·서비스의 이용 조건을 충족한 뒤 라이브 자격 증명으로 전환해야 한다. 운영 거래의 결제·환전 비용은 판매자 계정 조건에 따른다. | [샌드박스 시작](https://developer.paypal.com/v5/checkout/getting-started/), [운영 전환과 환불](https://developer.paypal.com/platforms/checkout/standard/integrate/) |
+| 해외 스테이블코인 · 판매자 지갑 직접 수납 | Circle Faucet의 테스트 USDC와 Base Sepolia 공개 RPC로 테스트 송금 및 영수증 조회를 구현한다. 테스트 가스도 준비한다. 주문에 지정된 네트워크·토큰 계약 주소·수취인·수량과 전송 로그를 대조한다. 메인넷 공개 RPC도 한도 내에서 거래를 읽을 수 있다. | 판매자가 자기 지갑에서 직접 받는 온체인 전송 자체에는 PG 가맹점 계약이 필요하지 않다. 실거래에는 판매자의 수납 동의, 구매자 지갑 서명, 실제 토큰과 네트워크 수수료가 필요하다. 환불은 별도 송금이다. 법정화폐 환전·은행 정산 서비스를 추가하면 그 제공자의 계정·심사 조건을 확인한다. | [무료 테스트 토큰](https://faucet.circle.com/), [공개 RPC와 한도](https://docs.base.org/get-started/connect-to-base), [거래 영수증 조회](https://ethereum.org/developers/docs/apis/json-rpc/#eth_gettransactionreceipt) |
+| 해외 스테이블코인 · PG 경유 | Stripe의 테스트 데모로 지갑 연결과 결제 단계 전환을 확인한다. FCC는 모의 결제 이벤트로 주문·환불 상태 처리를 검증할 수 있다. | 판매자가 실제 수납·정산하려면 지원되는 사업자 국가·계정 요건을 충족하고 Stripe 계정에서 스테이블코인 결제수단을 활성화해야 한다. 해당 PG의 수수료와 정산 조건이 적용된다. | [테스트 데모·지원 범위·정산](https://docs.stripe.com/payments/stablecoin-payments) |
+
+FCC 내부의 일회성 구매 승인은 주문에 대한 사용자 동의로 저장한다. 결제 완료는 PG가 확인한 수납 결과 또는 판매자가 해당 주문에 배정한 지갑 입금의 확인 결과로 기록한다. 실제 운영 거래와 테스트 거래는 별도로 관리한다.
+
 ### 공용 무료 API를 확인하지 못한 데이터
 
 | 필요한 값 | 실제 확인처 | 프로토타입 입력 |
