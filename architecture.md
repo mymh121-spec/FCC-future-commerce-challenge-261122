@@ -30,11 +30,44 @@ flowchart TD
 
 메인 에이전트는 요청 범위에 포함된 시장만 조회한다. 한국과 국외를 모두 요청하면 두 수집 경로를 병렬로 호출하고, 먼저 도착한 결과부터 표시할 수 있다. 한쪽 공급원이 실패하면 조회된 후보를 표시하고 해당 시장의 검색 상태를 따로 보여준다.
 
-## 비교 단계에서 합치는 데이터
+## 시장별 수집 데이터
 
-- 공통 비교 후보에는 판매처·옵션 식별자, 상품 규격과 수량, 검색 시장, 배송 경로, 결제 시 청구액, 한국 수령까지의 총비용, 한국 수령 예정일, 확인이 필요한 값을 담는다. 각 값은 확인 상태와 출처를 유지하고, 시장별 원본 견적과 연결한다.
-- 원화 환산이 필요한 후보에는 원통화, 적용 환율, 기준 시각을 함께 둔다. 총비용은 같은 규격·수량과 한국 수령까지의 비용 범위로 비교한다. 국제 운임이나 수입세가 미확인이면 확인된 소계와 미확인 항목을 보여주고, 총액이 확인된 후보와 별도로 표시한다.
-- 공급자가 수입세나 배송비를 결제 시 청구한 경우 포함 여부를 기록해 총액에 한 번만 반영한다. 예를 들어 국내 후보가 배송비 포함 32,000원이고 국외 후보가 결제액 25,000원에 국제 운임 10,000원이라면, 수입세 확인 전 국외 후보는 ‘확인된 비용 35,000원 + 수입세 미확인’으로 표시한다.
+### 국내 수집
+
+| 항목 | 원본 필드 | 수집 시점과 출처 |
+| --- | --- | --- |
+| 판매처와 상품 | `seller_id`, `offer_id`, `product_url`, `variant_id`, `product_name`, `brand`, `model_or_gtin`, `option_attributes`, `pack_size`, `unit_quantity`, `unit` | 공개 상품 정보나 판매자 피드에서 가져온다. 모델이나 GTIN이 비어 있으면 규격과 옵션으로 동일 상품 여부를 검토한다. |
+| 가격·재고 | `currency`, `unit_price`, `stock_status`, `available_quantity`, `purchase_limit` | 공개 상품의 가격과 재고 여부로 후보를 만든다. 구매 가능 수량과 계정별 한도는 요청 수량으로 장바구니를 확인할 때 갱신한다. |
+| 혜택·청구액 | `applied_coupon_discount`, `redeemed_points_value`, `checkout_total`, `price_tax_inclusion` | 같은 계정·옵션·수량의 장바구니나 사용자 확인값을 쓴다. 적립 예정 포인트와 이번 주문에서 사용한 포인트를 구분한다. |
+| 국내 배송 | `dispatch_country`, `domestic_shipping_fee`, `remote_area_surcharge`, `shipping_method`, `order_cutoff_at`, `arrival_at_kr_from`, `arrival_at_kr_to` | 판매처의 상품 안내로 출고지를 확인하고, 목적지를 적용한 배송 견적에서 비용과 기한을 읽는다. 한국 시장의 해외 출고 상품은 아래 국외 배송 항목을 보강한다. |
+
+### 국외 수집
+
+| 항목 | 원본 필드 | 수집 시점과 출처 |
+| --- | --- | --- |
+| 판매처와 상품 | 국내와 같은 상품·옵션 식별 필드, `seller_country`, `dispatch_country`, `origin_country`, `stock_status`, `available_quantity`, `purchase_limit` | 공개 상품 정보와 장바구니에서 가져온다. 판매처 소재지, 발송국, 상품 원산지를 각각 기록한다. 용량과 단위는 원본을 보존하고 비교 시 변환한다. |
+| 현지 가격·혜택·세금 | `currency`, `unit_price`, `applied_coupon_discount`, `redeemed_points_value`, `local_sales_tax`, `local_shipping_fee`, `checkout_total` | 실제로 배송할 주소를 적용한 판매처 장바구니에서 확인한다. 공공 세율 조회값으로 계산한 세액은 추정으로 기록한다. |
+| 국제 배송 경로 | `direct_shipping_available`, `forwarder_address_status`, `shipping_method`, `delivery_legs`, `order_cutoff_at`, `international_shipping_fee`, `forwarder_service_fee`, `billing_weight`, `weight_basis` | 직배송과 배대지 경유 견적을 따로 만든다. 배대지 주소 수락은 판매처에서 확인하고, 운임은 요율표 추정인지 재포장 후 실측 견적인지 기록한다. |
+| 수입세와 추가 비용 | `import_tax_estimate`, `customs_fee`, `included_charge_ids` | 품목, 원산지, 과세 대상 금액 등 확보한 입력으로 추정한다. 판매처 결제액에 이미 포함된 운임과 세금을 식별하고, 주문 이후 고지 세액은 원 견적과 구분해 저장한다. |
+
+각 수집값은 `source_ref`, `observed_at`, `valid_until`, `status`를 갖는다. 시점은 시간대가 포함된 형식으로 저장하고, 제공되지 않은 만료 시각은 비워 둔다. 주문번호, 배대지 사서함 번호, 결제 정보, 통관 식별값은 관련 주문이나 배송 기록에서 관리한다.
+
+## 공통 비교 필드와 변환 규칙
+
+| 공통 필드 | 국내에서 매핑 | 국외에서 매핑 |
+| --- | --- | --- |
+| `candidate_id`, `source_quote_ref` | 판매처 견적과 구매 조건의 버전을 참조한다. | 같은 상품이라도 직배송과 배대지 견적을 각각 후보로 만들고 원본 견적 버전을 참조한다. |
+| `product_key`, `variant_attributes`, `requested_quantity`, `normalized_quantity`, `normalized_unit` | 상품·옵션·묶음 단위를 정규화한다. 비교 수량은 동일한 기준 단위로 맞춘다. | 원본 상품명과 단위를 보존하고 정규화된 규격으로 매칭한다. 대응을 확인할 수 없으면 동일 상품으로 묶기 전에 확인한다. |
+| `market`, `dispatch_country`, `fulfillment_route` | 검색 시장은 `KR`로 기록한다. 국내 출고는 `domestic`, 해외 출고는 확인한 배송 경로를 쓴다. | 검색 시장은 판매 시장의 국가 코드로 기록한다. 배송 경로는 `cross_border_direct` 또는 `cross_border_forwarder`로 기록한다. 출고지나 경로가 불명확하면 `unknown`을 쓴다. |
+| `availability_status`, `quantity_limit`, `route_status` | 공개 재고, 수량 제한과 배송 가능 여부를 적용한다. 조건이 확인된 범위를 함께 보존한다. | 재고와 수량 제한에 더해 한국 직배송 가능 여부 또는 배대지 주소 수락 상태를 반영한다. |
+| `checkout_amount`, `cost_items[]` | 이번 주문에 적용된 할인, 국내 운임, 도서산간 추가비 등의 청구 시점을 기록한다. | 현지 세금·운임, 국제 운임, 배대지 비용, 수입세 등의 청구 시점을 기록한다. 판매처 청구액에 포함된 항목은 내역 표시와 합산 여부를 구분한다. |
+| `fx_rates[]`, `known_subtotal_krw`, `total_to_door_krw`, `total_status` | 원화 금액을 그대로 적용하고 한국 수령까지의 비용 합계를 계산한다. | 비용 항목의 원통화별 환율과 기준 시각으로 원화 환산 후 합산한다. 필수 비용이나 환율이 빠지면 확인된 소계와 미확인 항목을 표시하고 총액은 비워 둔다. |
+| `arrival_kr_from`, `arrival_kr_to`, `arrival_status` | 해당 주소의 국내 배송 예정 범위를 기록한다. | 한국 최종 수령 기준 범위를 기록한다. 현지 배대지 도착일은 원본 배송 구간에 두고, 최종 구간이 없으면 한국 수령은 미확인으로 둔다. |
+| `verification_required[]` | 수량, 쿠폰, 할증, 수령 예정일 등 확인할 항목을 담는다. | 국내와 같은 형식으로 주소 수락, 실측 운임, 수입세, 한국 도착일 등 확인할 항목을 담는다. |
+
+- `cost_items[]`의 각 항목은 `charge_id`, `kind`, `amount_minor`, `currency`, `charge_stage`, `included_in_checkout`, `source_ref`, `status`를 갖는다. `amount_minor`에는 통화별 최소 화폐 단위의 정수를 저장한다. 할인은 차감 방향으로 기록하고, 이미 청구액에 반영된 할인은 추가로 빼지 않는다.
+- 판매처 청구액이 있으면 이를 기준으로 이후 별도 청구되는 항목을 더한다. 청구액을 아직 모르면 구성 항목에서 견적을 계산하되 추정 상태를 유지한다. 모든 필수 비용의 금액이 있고 추정 항목 또는 추정 환율이 포함되면 총액을 추정으로 표시한다. 같은 장바구니·배송 경로에서 확인된 값은 해당 버전에 묶는다.
+- 예를 들어 국내 후보가 배송 포함 32,000원이고 국외 후보가 판매처 청구액 25,000원에 별도 국제 운임 10,000원이라면, 수입세 확인 전 국외 후보는 ‘확인된 소계 35,000원 + 수입세 미확인’으로 표시한다. 국제 운임 10,000원이 판매처 청구액에 이미 포함됐다면 소계는 25,000원이다.
 
 ## 공통 구매 영역
 
