@@ -40,13 +40,15 @@ eBay는 한국 수령지 우편번호 5자리가 필수다. 조회 건수는 기
 
 | 법정통화 | 스테이블코인 | 기준 |
 | --- | --- | --- |
-| CNY |  | 중국 본토 위안화 환율 |
-| CNH |  | 역외 위안화 환율 |
-| JPY | JPYC | 엔화 환율과 현행 JPYC 시세. [발행사 계약 주소](https://github.com/jpycoin)와 일치하는 [CoinGecko ID](https://www.coingecko.com/en/coins/jpycoin)를 사용한다. |
+| CNY |  | ECOS 원/중국위안. 최근 공시가 없으면 미제공 |
+| CNH |  | 서울 역외시장의 원/위안 매매기준율 |
+| JPY | JPYC | 100엔당 고시값을 100으로 나눈 원/엔 환율과 JPYC 원화 체결가 |
 | EUR | EURC | 유로 환율과 EURC 시세 |
 | USD | USDC, USDT | 달러 환율과 두 토큰 각각의 시세 |
 
-[Frankfurter](https://frankfurter.dev/javascript/)에서 원화 기준 일별 환율을 한 번에 받아 역수로 환산한다. `fiat`에는 통화별 기준일을 기록한다. [CoinGecko](https://docs.coingecko.com/reference/simple-price)에서 토큰별 원화 시세와 갱신 시각을 받아 `stablecoins`에 기록한다. Demo 키가 있으면 `COINGECKO_DEMO_API_KEY` 환경변수로 전달할 수 있다.
+법정통화는 한국은행 ECOS의 일별 통계표 `731Y001`에서 조회한다. 한국 시간 기준 최근 10일 중 통화별로 가장 최근에 공시된 값을 사용하고 `rate_date`에 실제 기준일을 기록한다. 프로토타입은 공개 `sample` 키로 실행할 수 있으며 발급받은 키는 환경변수 `ECOS_API_KEY`에 설정한다. [한국은행 ECOS Open API](https://ecos.bok.or.kr/api/)
+
+스테이블코인은 업비트 원화 마켓의 최근 체결가를 사용한다. `updated_at`은 UTC 체결 시각이다. 원화 거래쌍이 없으면 해당 토큰의 시세는 `null`이다. 조회에는 인증키가 필요 없다. [업비트 마켓 단위 현재가 조회](https://docs.upbit.com/kr/reference/list-quote-tickers)
 
 금액은 십진 문자열이다. 공급원이 가격을 제공하지 않으면 `krw_per_unit`은 `null`이다. 공급원 요청이 실패하면 해당 그룹을 `null`로 두고 `errors`에 이유를 담는다. 환전 수수료, 네트워크 수수료, 판매처의 토큰 결제 지원 여부는 별도로 확인한다.
 

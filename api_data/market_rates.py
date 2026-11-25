@@ -2,79 +2,88 @@
 
 import json
 import os
-from datetime import datetime, timezone
-from decimal import Decimal
+from datetime import datetime, timedelta, timezone
+from decimal import Decimal, InvalidOperation
 from urllib.error import URLError
-from urllib.parse import urlencode
+from urllib.parse import quote
 from urllib.request import Request, urlopen
 
 
-FIAT = ("CNY", "CNH", "JPY", "EUR", "USD")
-# CoinGecko IDs identify the asset even when multiple tokens share a ticker.
-TOKENS = {
-    "JPYC": ("jpycoin", "JPY"),
-    "EURC": ("euro-coin", "EUR"),
-    "USDC": ("usd-coin", "USD"),
-    "USDT": ("tether", "USD"),
+KST = timezone(timedelta(hours=9))
+# ECOS 731Y001 항목 코드와 고시 단위. 원/위안 매매기준율은 서울 역외시장 기준이다.
+ECOS_ITEMS = {
+    "CNY": ("0000027", 1),
+    "CNH": ("0000053", 1),
+    "JPY": ("0000002", 100),
+    "EUR": ("0000003", 1),
+    "USD": ("0000001", 1),
 }
+TOKENS = {"JPYC": "JPY", "EURC": "EUR", "USDC": "USD", "USDT": "USD"}
 
 
-def fetch(url, params, headers=None):
-    request = Request(url + "?" + urlencode(params), headers=headers or {})
+def fetch(url):
+    request = Request(url, headers={"Accept": "application/json"})
     with urlopen(request, timeout=15) as response:
         return json.load(response, parse_float=Decimal)
 
 
 def positive_price(value):
-    if isinstance(value, bool) or not isinstance(value, (Decimal, int)):
+    if not isinstance(value, (Decimal, int, str)) or isinstance(value, bool):
         return None
-    price = Decimal(value)
+    try:
+        price = Decimal(value)
+    except InvalidOperation:
+        return None
     return price if price.is_finite() and price > 0 else None
 
 
 def fiat_rates():
-    rows = fetch("https://api.frankfurter.dev/v2/rates",
-                 {"base": "KRW", "quotes": ",".join(FIAT)})
-    if not isinstance(rows, list):
-        raise ValueError("Frankfurter 환율 목록을 읽을 수 없습니다.")
-    rates = {code: {"krw_per_unit": None, "rate_date": None} for code in FIAT}
-    for row in rows:
-        code = row.get("quote")
-        if row.get("base") != "KRW" or code not in rates:
+    key = quote(os.environ.get("ECOS_API_KEY") or "sample", safe="")
+    today = datetime.now(KST).date()
+    start = today - timedelta(days=9)
+    period = f"{start:%Y%m%d}/{today:%Y%m%d}"
+    base = f"https://ecos.bok.or.kr/api/StatisticSearch/{key}/json/kr/1/10/731Y001/D/{period}"
+    rates = {code: {"krw_per_unit": None, "rate_date": None} for code in ECOS_ITEMS}
+    for code, (item, units) in ECOS_ITEMS.items():
+        data = fetch(f"{base}/{item}")
+        result = data.get("RESULT", {})
+        if result.get("CODE") == "INFO-200":
             continue
-        rate = positive_price(row.get("rate"))
-        if rate is not None and row.get("date"):
-            rates[code] = {"krw_per_unit": format(1 / rate, ".12f"), "rate_date": row["date"]}
+        if "StatisticSearch" not in data:
+            raise ValueError("한국은행 ECOS 조회 실패 (" + str(result.get("CODE", "응답 형식 오류")) + ")")
+        for row in sorted(data["StatisticSearch"]["row"], key=lambda r: r["TIME"], reverse=True):
+            price = positive_price(row.get("DATA_VALUE"))
+            if row.get("ITEM_CODE1") == item and price is not None:
+                date = datetime.strptime(row["TIME"], "%Y%m%d").date()
+                rates[code] = {"krw_per_unit": format(price / units, "f"), "rate_date": date.isoformat()}
+                break
     return rates
 
 
 def stablecoin_prices():
-    params = {"ids": ",".join(coin_id for coin_id, _ in TOKENS.values()),
-              "vs_currencies": "krw", "include_last_updated_at": "true", "precision": "full"}
-    key = os.getenv("COINGECKO_DEMO_API_KEY")
-    prices = fetch("https://api.coingecko.com/api/v3/simple/price", params,
-                   {"x-cg-demo-api-key": key} if key else {})
-    if not isinstance(prices, dict) or "error" in prices or "status" in prices:
-        raise ValueError("CoinGecko 시세를 읽을 수 없습니다.")
-    quotes = {}
-    for symbol, (coin_id, peg) in TOKENS.items():
-        row = prices.get(coin_id) or {}
-        price = positive_price(row.get("krw"))
-        timestamp = row.get("last_updated_at")
-        updated_at = None
-        if isinstance(timestamp, int) and timestamp > 0:
-            updated_at = datetime.fromtimestamp(timestamp, timezone.utc).isoformat()
-        quotes[symbol] = {"peg_currency": peg, "krw_per_unit": str(price) if price else None,
-                          "updated_at": updated_at}
+    rows = fetch("https://api.upbit.com/v1/ticker/all?quote_currencies=KRW")
+    if not isinstance(rows, list) or not rows:
+        raise ValueError("업비트 원화 마켓 현재가 목록을 읽을 수 없습니다.")
+    quotes = {symbol: {"peg_currency": peg, "krw_per_unit": None, "updated_at": None}
+              for symbol, peg in TOKENS.items()}
+    for row in rows:
+        currency, _, symbol = row["market"].partition("-")
+        if currency != "KRW" or symbol not in quotes:
+            continue
+        price = positive_price(row.get("trade_price"))
+        timestamp = row.get("trade_timestamp")
+        if price is not None and isinstance(timestamp, int) and timestamp > 0:
+            quotes[symbol]["krw_per_unit"] = format(price, "f")
+            quotes[symbol]["updated_at"] = datetime.fromtimestamp(timestamp / 1000, timezone.utc).isoformat()
     return quotes
 
 
 def get_market_rates():
-    result = {"quote_currency": "KRW", "errors": {}}
+    result = {"quote_currency": "KRW", "sources": {"fiat": "한국은행 ECOS", "stablecoins": "업비트 KRW"}, "errors": {}}
     for name, lookup in (("fiat", fiat_rates), ("stablecoins", stablecoin_prices)):
         try:
             result[name] = lookup()
-        except (URLError, OSError, ValueError) as exc:
+        except (URLError, OSError, ValueError, KeyError) as exc:
             result[name] = None
             result["errors"][name] = str(exc)
     return result
