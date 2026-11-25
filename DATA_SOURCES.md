@@ -53,7 +53,7 @@
 
 | 필요한 값 | 대표 API | 접근 조건과 확인 범위 |
 | --- | --- | --- |
-| 국내 상품 후보·검색 표시 가격 | 네이버 쇼핑 검색 `GET /v1/search/shop.json` | 앱 등록과 클라이언트 키가 필요하다. 공식 문서 기준 하루 25,000회 한도다. 상품명, 판매처, 링크, 표시 가격을 후보 검색에 사용한다. 옵션별 재고와 최종 청구액은 판매처에서 확인한다. [공식 문서](https://developers.naver.com/docs/serviceapi/search/shopping/shopping.md) |
+| 국내 상품 후보와 검색 표시 가격 | Yo! Korea와 Pesado Korea의 공개 상품 카탈로그 | 한국 시장의 원화 옵션 최저가와 구매 링크를 조회한다. 다나와와 네이버에서 직접 고른 상품은 구매자가 확인한 가격으로 구분한다. [조회 방법](./api_data/README.md#국내-상품-검색) |
 | 국외 상품 가격·재고 여부 | WooCommerce Store API `GET /wp-json/wc/store/v1/products` | 해당 API를 제공하는 상점의 공개 상품을 조회한다. 상품 가격과 공개 재고 상태를 사용한다. 정확한 잔량이나 계정별 한도는 주문할 옵션과 수량으로 다시 확인한다. [공식 문서](https://developer.woocommerce.com/docs/apis/store-api/resources-endpoints/products/) |
 | 쿠폰 적용액·청구액·배송 선택지 | WooCommerce Cart API `GET /wp-json/wc/store/v1/cart` | 해당 상점의 구매자 세션에서 조회한다. 장바구니 변경에는 Cart Token 또는 nonce가 필요하다. 배송지 적용 후 반환된 비용과 선택지를 쓰고, 포인트·도착일이 응답에 빠지면 사용자 확인으로 연결한다. [공식 문서](https://developer.woocommerce.com/docs/apis/store-api/resources-endpoints/cart/) |
 | 미국 워싱턴주 현지 판매세 추정 | 워싱턴주 세무 당국 `GET /webapi/AddressRates.aspx` | 키 없이 워싱턴주 주소로 세율과 주소 확인 코드를 조회한다. 세율은 비교용으로 쓰고 구매자의 실제 세액은 장바구니에서 확인한다. [공식 명세](https://dor.wa.gov/wa-sales-tax-rate-lookup-url-interface) |
