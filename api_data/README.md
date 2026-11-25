@@ -30,7 +30,7 @@ eBay는 한국 수령지 우편번호 5자리가 필수다. 조회 건수는 기
 ## 응답 해석
 
 - `kr_direct_shipping`은 상품별 한국 직배송 확인 상태다. 해외 실물 상품은 `unverified`(확인 필요)로 표시한다. 한국 배송 필터를 통과하거나 운임 견적이 있어도 선택한 옵션과 수량을 실제 한국 주소로 받을 수 있는지는 판매처에서 확인해야 한다. 국내 쇼핑 검색 결과와 배송이 필요 없는 상품에는 `not_applicable`을 사용한다.
-- `seller_check_required`는 판매처 확인이 필요한 국내 후보다. `destination_filter`는 한국 배송 조건으로 검색된 후보이며, `freight_quote`는 운임 조회에서 배송편을 확인한 후보다.
+- `seller_check_required`는 판매처에서 배송 가능 여부를 확인해야 하는 상품이다. `destination_filter`는 한국 배송 조건으로 검색된 후보이며, `freight_quote`는 운임 조회에서 배송편을 확인한 후보다.
 - `price`와 `shipping`에는 금액과 통화를 각각 담는다. 배송비가 없으면 `null`, 무료 배송을 명시한 응답은 금액 `"0"`이다. 상품가에 배송비나 세금이 모두 포함됐다고 가정하지 않는다.
 - `market`은 검색 시장이다. 출고국을 확인할 수 없는 응답에서는 `dispatch_country`를 `null`로 둔다. 특정 옵션이나 수량의 최종 결제액은 판매처에서 확인한다.
 
@@ -56,17 +56,17 @@ eBay는 한국 수령지 우편번호 5자리가 필수다. 조회 건수는 기
 
 | 판매처 | 토큰 | API와 한국 구매 범위 |
 | --- | --- | --- |
-| SEASE | USDC, USDT | 한국 마켓의 실물 상품을 검색한다. 판매처가 한국 배송과 LUNU 결제를 명시한다. 상품 URL에서 옵션과 주소를 선택한 뒤 최종 운임, 토큰, 네트워크를 확인한다. [한국 결제 및 배송 안내](https://sease.live/ko-kr/pages/faq), [Shopify 검색 API](https://shopify.dev/docs/api/ajax/reference/predictive-search) |
+| [Coinbase Shop](https://coinbaseshop.com/collections/all-products) | USDC | 의류와 잡화의 재고 및 표시 가격을 조회한다. Coinbase는 Base 네트워크의 USDC 결제를 안내한다. 판매처는 국제 배송을 안내하지만 상품별 한국 직배송과 배송비는 미확인이다. [USDC 결제 안내](https://www.coinbase.com/en-ca/blog/coinbase-and-shopify-bring-usdc-payments-on-base-to-millions-of-merchants-worldwide), [판매처 배송 FAQ](https://coinbaseshop.com/pages/faqs), [Shopify 검색 API](https://shopify.dev/docs/api/ajax/reference/predictive-search) |
 | JPYC EC | JPYC | 상품 피드에서 실판매 상품과 JPYC 가격 범위를 가져온다. 한국 직배송은 미확인 상태다. 배송 필요 여부가 거짓인 경우에도 수령 방법을 상품 페이지에서 확인한다. [상품 및 결제 API 명세](https://ec.jpyc-service.com/api/v1/openapi.yaml), [배송 및 지원 체인 안내](https://ec.jpyc-service.com/faq) |
 | Cryptorefills 기프트카드 | EURC, USDC, USDT | 한국에서 사용할 수 있는 이메일 상품권을 조회한다. 권종별 토큰 금액과 결제 경로는 API 응답값을 사용한다. EURC의 공급사 코드는 `EUROC`다. 상품권을 살 때 토큰을 받는 곳은 Cryptorefills다. [카탈로그 API](https://www.cryptorefills.com/en/ai-agents), [한국 기프트카드 목록](https://www.cryptorefills.com/en/south_korea/gift_cards) |
 
 ```sh
-python3 api_data/stablecoin_shops.py sease jacket
+python3 api_data/stablecoin_shops.py coinbase-shop "world tour"
 python3 api_data/stablecoin_shops.py jpyc コーヒー
 python3 api_data/stablecoin_shops.py cryptorefills Emart --token EURC
 ```
 
-SEASE의 표시 가격은 한국 마켓의 법정통화 금액이다. 결제창에서 지갑을 선택하면 토큰 금액이 표시된다. JPYC EC 주문은 상품 페이지에서 지원 체인을 확인한 뒤 지갑 서명이 필요하다. Cryptorefills의 주문 확정 절차는 [결제 API 문서](https://www.cryptorefills.com/en/api-docs/developers)에서 확인할 수 있다.
+Coinbase Shop은 상품 가격을 USD로 표시한다. USDC 결제 금액은 결제창에서 확인한다. JPYC EC 주문은 상품 페이지에서 지원 체인을 확인한 뒤 지갑 서명이 필요하다. Cryptorefills의 주문 확정 절차는 [결제 API 문서](https://www.cryptorefills.com/en/api-docs/developers)에서 확인할 수 있다.
 
 ### Cryptorefills 수집 범위
 

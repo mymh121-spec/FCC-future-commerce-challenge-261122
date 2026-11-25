@@ -7,7 +7,7 @@ from urllib.parse import urlencode, urljoin
 from urllib.request import Request, urlopen
 
 
-SEASE = "https://www.sease.live"
+COINBASE_SHOP = "https://coinbaseshop.com"
 JPYC_EC = "https://ec.jpyc-service.com"
 CR_CATALOG = "https://api.cryptorefills.com/mcp/http"
 CR_TOKENS = {"EURC": "EUROC", "USDC": "USDC", "USDT": "USDT"}
@@ -25,19 +25,19 @@ def read_json(url, params=None, *, rpc=None):
         return json.load(response)
 
 
-def sease(keyword, limit=5):
-    """한국 마켓의 재고 있는 상품을 조회한다. 결제 수단은 판매처 공시 기준이다."""
-    result = read_json(SEASE + "/en-kr/search/suggest.json", {
+def coinbase_shop(keyword, limit=5):
+    """Coinbase Shop에서 재고 있는 상품과 표시 가격을 조회한다."""
+    result = read_json(COINBASE_SHOP + "/search/suggest.json", {
         "q": keyword, "resources[type]": "product", "resources[limit]": limit,
         "resources[options][unavailable_products]": "hide",
     })
     products = result["resources"]["results"]["products"]
     if not products:
         return []
-    currency = read_json(SEASE + "/en-kr/cart.js")["currency"]
-    return [{"title": p["title"], "url": urljoin(SEASE, p["url"]),
+    currency = read_json(COINBASE_SHOP + "/cart.js")["currency"]
+    return [{"title": p["title"], "url": urljoin(COINBASE_SHOP, "/products/" + p["handle"]),
              "listed_amount": p["price"], "listed_currency": currency,
-             "merchant_tokens": ["USDC", "USDT"], "shipping_status": "merchant_lists_KR",
+             "merchant_tokens": ["USDC"], "shipping_status": "seller_check_required",
              "kr_direct_shipping": "unverified", "shipping_fee": None} for p in products if p.get("available")]
 
 
@@ -95,7 +95,7 @@ def cryptorefills(brand, token, limit=5):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("site", choices=("sease", "jpyc", "cryptorefills"))
+    parser.add_argument("site", choices=("coinbase-shop", "jpyc", "cryptorefills"))
     parser.add_argument("query", help="상품 검색어 또는 Cryptorefills의 브랜드명")
     parser.add_argument("--token", choices=CR_TOKENS, help="Cryptorefills 견적 통화 (기본 USDC)")
     parser.add_argument("--limit", type=int, choices=range(1, 11), default=5)
@@ -107,8 +107,8 @@ if __name__ == "__main__":
     try:
         if args.site == "cryptorefills":
             rows = cryptorefills(args.query, args.token or "USDC", args.limit)
-        elif args.site == "sease":
-            rows = sease(args.query, args.limit)
+        elif args.site == "coinbase-shop":
+            rows = coinbase_shop(args.query, args.limit)
         else:
             rows = jpyc_ec(args.query, args.limit)
         print(json.dumps({"site": args.site, "items": rows}, ensure_ascii=False, indent=2))
