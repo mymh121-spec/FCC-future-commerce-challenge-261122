@@ -40,7 +40,7 @@ eBay는 한국 수령지 우편번호 5자리가 필수다. 조회 건수는 기
 | 법정통화 | 스테이블코인 | 기준 |
 | --- | --- | --- |
 | CNY |  | 중국 본토 위안화 환율 |
-| CNH | AxCNH | 역외 위안화 환율과 [AxCNH](https://www.anchorx.org/about-us) 시세 |
+| CNH |  | 역외 위안화 환율 |
 | JPY | JPYC | 엔화 환율과 현행 JPYC 시세. [발행사 계약 주소](https://github.com/jpycoin)와 일치하는 [CoinGecko ID](https://www.coingecko.com/en/coins/jpycoin)를 사용한다. |
 | EUR | EURC | 유로 환율과 EURC 시세 |
 | USD | USDC, USDT | 달러 환율과 두 토큰 각각의 시세 |
@@ -48,3 +48,21 @@ eBay는 한국 수령지 우편번호 5자리가 필수다. 조회 건수는 기
 [Frankfurter](https://frankfurter.dev/javascript/)에서 원화 기준 일별 환율을 한 번에 받아 역수로 환산한다. `fiat`에는 통화별 기준일을 기록한다. [CoinGecko](https://docs.coingecko.com/reference/simple-price)에서 토큰별 원화 시세와 갱신 시각을 받아 `stablecoins`에 기록한다. Demo 키가 있으면 `COINGECKO_DEMO_API_KEY` 환경변수로 전달할 수 있다.
 
 금액은 십진 문자열이다. 공급원이 가격을 제공하지 않으면 `krw_per_unit`은 `null`이다. 공급원 요청이 실패하면 해당 그룹을 `null`로 두고 `errors`에 이유를 담는다. 환전 수수료, 네트워크 수수료, 판매처의 토큰 결제 지원 여부는 별도로 확인한다.
+
+## 스테이블코인 결제 판매처
+
+[stablecoin_shops.py](./stablecoin_shops.py)는 공개 API에서 상품 또는 권종별 견적을 조회한다. 아래 명령은 API 키 없이 실행할 수 있다.
+
+| 판매처 | 토큰 | API와 한국 구매 범위 |
+| --- | --- | --- |
+| SEASE | USDC, USDT | 한국 마켓의 실물 상품을 검색한다. 판매처가 한국 배송과 LUNU 결제를 명시한다. 상품 URL에서 옵션과 주소를 선택한 뒤 최종 운임, 토큰, 네트워크를 확인한다. [한국 결제 및 배송 안내](https://sease.live/ko-kr/pages/faq), [Shopify 검색 API](https://shopify.dev/docs/api/ajax/reference/predictive-search) |
+| JPYC EC | JPYC | 상품 피드에서 실판매 상품과 JPYC 가격 범위를 가져온다. 한국 직배송은 미확인 상태다. 배송 필요 여부가 거짓인 경우에도 수령 방법을 상품 페이지에서 확인한다. [상품 및 결제 API 명세](https://ec.jpyc-service.com/api/v1/openapi.yaml), [배송 및 지원 체인 안내](https://ec.jpyc-service.com/faq) |
+| Cryptorefills | EURC, USDC, USDT | 공개 카탈로그에서 한국용 이메일 상품권을 조회한다. 권종별 토큰 금액과 결제 경로는 API 응답값을 사용한다. EURC의 공급사 코드는 `EUROC`다. 토큰을 받는 판매처는 상품권 발행 브랜드와 별개인 Cryptorefills다. [카탈로그 API](https://www.cryptorefills.com/en/ai-agents), [한국 상품 페이지](https://www.cryptorefills.com/en/south_korea/gift_cards/emart) |
+
+```sh
+python3 api_data/stablecoin_shops.py sease jacket
+python3 api_data/stablecoin_shops.py jpyc コーヒー
+python3 api_data/stablecoin_shops.py cryptorefills Emart --token EURC
+```
+
+SEASE의 표시 가격은 한국 마켓의 법정통화 금액이다. 결제창에서 지갑을 선택하면 토큰 금액이 표시된다. JPYC EC 주문은 상품 페이지에서 지원 체인을 확인한 뒤 지갑 서명이 필요하다. Cryptorefills의 주문 확정 절차는 [결제 API 문서](https://www.cryptorefills.com/en/api-docs/developers)에서 확인할 수 있다.

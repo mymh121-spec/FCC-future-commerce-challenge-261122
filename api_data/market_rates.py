@@ -12,7 +12,6 @@ from urllib.request import Request, urlopen
 FIAT = ("CNY", "CNH", "JPY", "EUR", "USD")
 # CoinGecko IDs identify the asset even when multiple tokens share a ticker.
 TOKENS = {
-    "AxCNH": ("axcnh", "CNH"),
     "JPYC": ("jpycoin", "JPY"),
     "EURC": ("euro-coin", "EUR"),
     "USDC": ("usd-coin", "USD"),
