@@ -1,4 +1,4 @@
-# 한국 배송 상품 조회 API
+# 한국 배송 상품 및 원화 시세 조회 API
 
 [direct_shipping.py](./direct_shipping.py)는 Python 표준 라이브러리로 시장 한 곳의 상품을 검색한다. 해외 배송 목적지는 한국으로 고정한다.
 
@@ -32,3 +32,19 @@ eBay는 한국 수령지 우편번호 5자리가 필수다. 조회 건수는 기
 - `seller_check_required`는 판매처 확인이 필요한 국내 후보다. `destination_filter`는 한국 배송 조건으로 검색된 후보이며, `freight_quote`는 운임 조회에서 배송편을 확인한 후보다.
 - `price`와 `shipping`에는 금액과 통화를 각각 담는다. 배송비가 없으면 `null`, 무료 배송을 명시한 응답은 금액 `"0"`이다. 상품가에 배송비나 세금이 모두 포함됐다고 가정하지 않는다.
 - `market`은 검색 시장이다. 출고국을 확인할 수 없는 응답에서는 `dispatch_country`를 `null`로 둔다. 특정 옵션이나 수량의 최종 결제액은 판매처에서 확인한다.
+
+## 법정통화 환율과 스테이블코인 시세
+
+`python3 api_data/market_rates.py`를 실행하면 통화 한 단위와 토큰 한 개의 원화 참고 가격을 JSON으로 출력한다. 서버 코드에서는 [market_rates.py](./market_rates.py)의 `get_market_rates()`를 호출한다.
+
+| 법정통화 | 스테이블코인 | 기준 |
+| --- | --- | --- |
+| CNY |  | 중국 본토 위안화 환율 |
+| CNH | AxCNH | 역외 위안화 환율과 [AxCNH](https://www.anchorx.org/about-us) 시세 |
+| JPY | JPYC | 엔화 환율과 현행 JPYC 시세. [발행사 계약 주소](https://github.com/jpycoin)와 일치하는 [CoinGecko ID](https://www.coingecko.com/en/coins/jpycoin)를 사용한다. |
+| EUR | EURC | 유로 환율과 EURC 시세 |
+| USD | USDC, USDT | 달러 환율과 두 토큰 각각의 시세 |
+
+[Frankfurter](https://frankfurter.dev/javascript/)에서 원화 기준 일별 환율을 한 번에 받아 역수로 환산한다. `fiat`에는 통화별 기준일을 기록한다. [CoinGecko](https://docs.coingecko.com/reference/simple-price)에서 토큰별 원화 시세와 갱신 시각을 받아 `stablecoins`에 기록한다. Demo 키가 있으면 `COINGECKO_DEMO_API_KEY` 환경변수로 전달할 수 있다.
+
+금액은 십진 문자열이다. 공급원이 가격을 제공하지 않으면 `krw_per_unit`은 `null`이다. 공급원 요청이 실패하면 해당 그룹을 `null`로 두고 `errors`에 이유를 담는다. 환전 수수료, 네트워크 수수료, 판매처의 토큰 결제 지원 여부는 별도로 확인한다.
