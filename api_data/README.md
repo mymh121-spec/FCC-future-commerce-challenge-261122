@@ -73,3 +73,12 @@ Coinbase Shop은 상품 가격을 USD로 표시한다. USDC 결제 금액은 결
 MVP에서는 Cryptorefills를 항공권, 기프트카드, 숙박에만 사용한다. 기프트카드 조회 결과에는 `category: gift_card`를 표시한다. 항공사나 호텔 브랜드가 발행한 상품권도 이 분류에 속한다.
 
 항공권 운임과 좌석은 [항공권 검색](https://www.cryptorefills.com/en/flights)에서, 숙박 요금과 빈 객실은 [숙박 검색](https://www.cryptorefills.com/en/stays)에서 확인한다. 두 항목의 실시간 데이터는 파트너 연동이 필요해 MVP에서는 공식 검색 링크만 제공한다. 항공권과 숙박 예약은 배송 대상이 아니다. 기프트카드의 `redemption_country`는 사용 국가를 뜻한다. [파트너 연동 안내](https://www.cryptorefills.com/en/wallets-and-exchanges)
+
+### 한국 수령 시 배대지가 필요한 판매처
+
+[판매처 목록(JSON)](./forwarding_required_shops.json)에서 두 곳 모두 `requires_forwarder_for_kr`를 `true`로 표시한다.
+
+| 판매처 | 결제 수단 | 한국 수령 조건 |
+| --- | --- | --- |
+| [일본직판(日本直販)](https://www.666-666.jp/) | JPYC (Polygon, 시범 도입) | **배대지 필요**. 일본 국내 주소로만 배송한다. [결제 공지](https://corporate.666-666.jp/news/20261119_notice/), [배송 FAQ](https://www.666-666.jp/view/page/faq) |
+| [kstore](https://kstore.ee/en) | EURC (Ethereum, Base, Solana) | **배대지 필요**. 판매처가 배송하는 유럽 국가의 주소가 필요하다. [결제 안내](https://kstore.ee/en/page/cryptocurrency-payments), [배송 국가 목록](https://kstore.ee/en/page/shipping) |

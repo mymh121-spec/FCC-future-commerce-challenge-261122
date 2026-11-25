@@ -1,0 +1,22 @@
+[
+  {
+    "name": "일본직판(日本直販)",
+    "url": "https://www.666-666.jp/",
+    "payment_token": "JPYC",
+    "payment_networks": ["Polygon"],
+    "kr_direct_shipping": "unavailable",
+    "requires_forwarder_for_kr": true,
+    "payment_policy_url": "https://corporate.666-666.jp/news/20261119_notice/",
+    "shipping_policy_url": "https://www.666-666.jp/view/page/faq"
+  },
+  {
+    "name": "kstore",
+    "url": "https://kstore.ee/en",
+    "payment_token": "EURC",
+    "payment_networks": ["Ethereum", "Base", "Solana"],
+    "kr_direct_shipping": "unavailable",
+    "requires_forwarder_for_kr": true,
+    "payment_policy_url": "https://kstore.ee/en/page/cryptocurrency-payments",
+    "shipping_policy_url": "https://kstore.ee/en/page/shipping"
+  }
+]
