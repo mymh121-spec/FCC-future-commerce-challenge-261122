@@ -12,7 +12,6 @@ from urllib.request import Request, urlopen
 KST = timezone(timedelta(hours=9))
 # ECOS 731Y001 항목 코드와 고시 단위. 원/위안 매매기준율은 서울 역외시장 기준이다.
 ECOS_ITEMS = {
-    "CNY": ("0000027", 1),
     "CNH": ("0000053", 1),
     "JPY": ("0000002", 100),
     "EUR": ("0000003", 1),
