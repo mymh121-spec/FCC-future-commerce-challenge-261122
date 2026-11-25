@@ -41,10 +41,11 @@ def money(amount, currency):
     return {"amount": str(amount), "currency": currency}
 
 
-def offer(title, url, price, shipping, status, dispatch=None):
+def offer(title, url, price, shipping, status, dispatch=None, *, kr_direct_shipping="unverified"):
     return {
         "title": title, "url": url, "price": price, "shipping": shipping,
         "shipping_status": status, "dispatch_country": dispatch,
+        "kr_direct_shipping": kr_direct_shipping,
     }
 
 
@@ -60,7 +61,7 @@ def naver(keyword, limit):
         title = unescape(re.sub(r"</?b>", "", item["title"]))
         price = item.get("lprice")
         offers.append(offer(title, item["link"], money(price, "KRW") if price not in (0, "0") else None,
-                            None, "seller_check_required"))
+                            None, "seller_check_required", kr_direct_shipping="not_applicable"))
     return offers
 
 

@@ -38,7 +38,7 @@ def sease(keyword, limit=5):
     return [{"title": p["title"], "url": urljoin(SEASE, p["url"]),
              "listed_amount": p["price"], "listed_currency": currency,
              "merchant_tokens": ["USDC", "USDT"], "shipping_status": "merchant_lists_KR",
-             "shipping_fee": None} for p in products if p.get("available")]
+             "kr_direct_shipping": "unverified", "shipping_fee": None} for p in products if p.get("available")]
 
 
 def jpyc_ec(keyword, limit=5):
@@ -58,6 +58,7 @@ def jpyc_ec(keyword, limit=5):
                       "merchant_tokens": ["JPYC"], "price_min_jpyc": info.get("price_jpyc_min"),
                       "price_max_jpyc": info.get("price_jpyc_max"),
                       "requires_shipping": info.get("requires_shipping"),
+                      "kr_direct_shipping": "not_applicable" if info.get("requires_shipping") is False else "unverified",
                       "shipping_status": "check_fulfillment_with_seller", "shipping_fee": None})
         if len(found) == limit:
             break
@@ -82,11 +83,11 @@ def cryptorefills(brand, token, limit=5):
         for item in family["products"]:
             if item.get("coin") != coin or item.get("delivery_type") != "by_email":
                 continue
-            found.append({"brand": family["brand"], "product_id": item["product_id"],
+            found.append({"category": "gift_card", "brand": family["brand"], "product_id": item["product_id"],
                           "face_value": item["face_value"], "denomination": item["denomination"],
                           "payment_token": token, "token_amount": item.get("coin_amount"),
                           "payment_method": item.get("payment_method"),
-                          "redemption_country": "KR", "delivery": "email"})
+                          "redemption_country": "KR", "delivery": "email", "kr_direct_shipping": "not_applicable"})
             if len(found) == limit:
                 return found
     return found
