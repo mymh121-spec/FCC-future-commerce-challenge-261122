@@ -1,2 +1,10 @@
 .venv-search/
 __pycache__/
+
+# 구매자 보관 영역에는 설계 문서만 추적한다.
+/buyer data/local/**
+!/buyer data/local/README.md
+/buyer data/server/**
+!/buyer data/server/README.md
+
+/.streamlit/secrets.toml
