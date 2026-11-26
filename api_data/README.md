@@ -202,3 +202,5 @@ curl -fL https://alphacephei.com/vosk/models/vosk-model-small-ko-0.22.zip -o .ve
 ```
 
 터미널에 표시되는 로컬 주소를 연다. 음성 입력을 쓸 때만 브라우저의 마이크 권한을 허용한다. 음성 인식에는 API 키가 필요 없으며 전체 국가의 공개 판매처 검색도 키 없이 사용할 수 있다. eBay 검색에는 위 표의 키가 필요하다.
+
+개인용 화면에서는 로그인 없이 [구매 선호와 검색 피드백](../buyer%20data/server/README.md)을 관리한다. 배송지와 연락처는 [고객 기기용 저장 명령](../buyer%20data/local/README.md)으로 관리한다.

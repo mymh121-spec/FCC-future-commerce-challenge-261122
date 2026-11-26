@@ -1,6 +1,7 @@
 """상품명을 직접 입력하거나 한국어 음성으로 입력하는 로컬 검색 화면."""
 
 import json
+import sqlite3
 import sys
 import wave
 from pathlib import Path
@@ -9,6 +10,7 @@ from urllib.parse import urlsplit
 
 import streamlit as st
 
+import buyer_server
 from direct_shipping import EBAY_COUNTRIES, search
 
 
@@ -62,6 +64,47 @@ def use_recording():
         st.session_state.voice_notice = "말소리를 인식하지 못했습니다. 다시 녹음하거나 검색어를 입력하세요."
 
 
+def account_panel(owner):
+    with st.sidebar:
+        prefs, ratings = buyer_server.memory(owner)
+        with st.expander("내 구매 선호"):
+            names = {"신발 사이즈 (mm)": "shoe_size_mm", "표시 선호 통화": "currency", "배송 우선순위": "priority"}
+            label = st.selectbox("저장할 항목", list(names))
+            field = names[label]
+            current = prefs.get(field)
+            st.caption(f"저장된 값  {current or '없음'}")
+            if field == "shoe_size_mm":
+                value = st.number_input("사이즈 (mm)", 100, 400, int(current) if current else None)
+            else:
+                options = buyer_server.CURRENCIES if field == "currency" else buyer_server.PRIORITIES
+                value = st.selectbox(label, options, index=options.index(current) if current in options else None)
+            if st.button("다음에도 사용", disabled=value is None):
+                buyer_server.set_preference(owner, field, value)
+                st.rerun()
+            if st.button("저장한 선호 삭제", disabled=current is None):
+                buyer_server.set_preference(owner, field, None)
+                st.rerun()
+    return ratings
+
+
+def feedback_form(owner, items, ratings, group):
+    if owner is None or not items:
+        return
+    products = {buyer_server.product_key(item): item for item in items}
+    with st.expander("검색 결과 피드백"):
+        key = st.selectbox("평가할 상품", list(products), key=f"product_{group}",
+                           format_func=lambda k: f"{products[k].get('seller') or ''} {products[k]['title']}")
+        current = ratings.get(key)
+        reason = st.selectbox("피드백", buyer_server.FEEDBACK, key=f"rating_{group}_{key}",
+                              index=buyer_server.FEEDBACK.index(current) if current else None)
+        if st.button("피드백 저장", key=f"save_{group}", disabled=reason is None):
+            buyer_server.set_feedback(owner, key, reason)
+            st.rerun()
+        if st.button("피드백 삭제", key=f"delete_{group}", disabled=current is None):
+            buyer_server.set_feedback(owner, key, None)
+            st.rerun()
+
+
 def show_product(item):
     st.text(item["title"])
     price = item.get("price")
@@ -81,7 +124,7 @@ def show_product(item):
         st.link_button("상품 보기", item["url"])
 
 
-def show_results(result):
+def show_results(result, owner, ratings):
     if result.get("mvp_payment_scope") == "fiat_only":
         st.caption("이 판매처는 법정통화 결제만 안내합니다. 스테이블코인 직접 결제는 미확인입니다.")
     if result.get("translated_queries"):
@@ -97,12 +140,18 @@ def show_results(result):
         st.info("표시할 상품이 없습니다.")
     if items and result["market"] == "CN":
         st.subheader("중국 본토 출고 확인")
-    for item in items:
+
+    def relevance(item):
+        reason = ratings.get(buyer_server.product_key(item)) if ratings else None
+        return {"찾던 상품": -1, "다른 상품": 1}.get(reason, 0)
+
+    for item in sorted(items, key=relevance):
         show_product(item)
     if pending:
         st.subheader("중국 본토 출고 미확인")
-        for item in pending:
+        for item in sorted(pending, key=relevance):
             show_product(item)
+    feedback_form(owner, items + pending, ratings, result["market"])
     links = result.get("browser_search", {})
     for key, label in (("naver", "네이버에서 검색"), ("danawa", "다나와에서 검색")):
         if links.get(key):
@@ -112,6 +161,17 @@ def show_results(result):
 def main():
     st.set_page_config(page_title="상품 검색")
     st.title("상품 검색")
+    # The owner comes from server configuration, never from a browser parameter.
+    owner = None
+    ratings = {}
+    if st.get_option("server.address") in ("127.0.0.1", "::1", "localhost"):
+        owner = "local-owner"
+        try:
+            buyer_server.initialize()
+            ratings = account_panel(owner)
+        except (OSError, sqlite3.Error):
+            owner = None
+            st.sidebar.warning("개인 메모리를 열 수 없습니다. 검색은 계속 사용할 수 있습니다.")
     market = st.selectbox("구매 국가", list(MARKETS), format_func=MARKETS.get)
     if MODEL_PATH.is_dir():
         st.audio_input("한국어로 말하기", sample_rate=16000, key="recording", on_change=use_recording,
@@ -144,15 +204,18 @@ def main():
         country, term, result = previous
         st.subheader(f"{MARKETS[country]} 검색 결과")
         st.text(term)
-        show_results(result)
+        show_results(result, owner, ratings)
         if country == "KR":
             if st.button("같은 검색어로 해외 판매처 조회"):
                 with st.spinner("해외 판매처에서 상품을 찾고 있습니다."):
                     st.session_state.overseas_search = search("OVERSEAS", term, limit=20)
             if overseas := st.session_state.get("overseas_search"):
                 st.subheader("해외 검색 결과")
-                show_results(overseas)
+                show_results(overseas, owner, ratings)
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except sqlite3.Error:
+        st.error("고객 저장소를 사용할 수 없습니다. 연결 상태를 확인한 뒤 다시 시도하세요.")

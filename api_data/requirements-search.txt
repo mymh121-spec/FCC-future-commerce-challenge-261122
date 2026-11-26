@@ -1,2 +1,2 @@
-streamlit>=1.67,<2
+streamlit[auth]>=1.67,<2
 vosk==0.3.45
