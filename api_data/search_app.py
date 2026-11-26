@@ -4,14 +4,19 @@ import json
 import sqlite3
 import sys
 import wave
+from datetime import datetime
+from decimal import Decimal
 from pathlib import Path
+from uuid import uuid4
+from zoneinfo import ZoneInfo
 from urllib.error import URLError
 from urllib.parse import urlsplit
 
 import streamlit as st
 
 import buyer_server
-from direct_shipping import EBAY_COUNTRIES, search
+import product_quotes
+from direct_shipping import EBAY_COUNTRIES, SEARCH_ERRORS, search
 
 
 MODEL_PATH = Path(sys.prefix) / "share/fcc-search/vosk-model-small-ko-0.22"
@@ -108,7 +113,7 @@ def feedback_form(owner, items, ratings, group):
 def show_product(item):
     st.text(item["title"])
     price = item.get("price")
-    amount = f"{price['amount']} {price['currency']}" if price else "가격 미확인"
+    amount = f"상품 표시가 {price['amount']} {price['currency']}" if price else "가격 미확인"
     if price and item.get("price_basis") == "min_variant_price":
         amount += "부터"
     shipping = item.get("shipping")
@@ -122,6 +127,94 @@ def show_product(item):
     st.caption(" / ".join(filter(None, details)))
     if urlsplit(item["url"] or "").scheme in ("http", "https"):
         st.link_button("상품 보기", item["url"])
+
+
+def display_quote(q):
+    def money(value):
+        return f"{Decimal(value):,f} {q['currency']}" if value is not None else "미확인"
+
+    st.text(f"{q['seller']} / {q.get('model_code') or q['title']} / {q['option']} / {q['quantity']}개")
+    stock = product_quotes.STOCK_LABEL[q["stock"]]
+    st.text(f"{stock} ({q['stock_level']})" if q["stock_level"] else stock)
+    st.text(f"상품 표시가 {money(q['price'])}")
+    if q["shipping"] is None:
+        st.text("배송비 미확인")
+    else:
+        st.text(f"예상 배송비 {money(q['shipping'])} ({q['shipping_basis']})")
+    st.text(f"예상 합계 {money(q['estimated_total'])}" if q["estimated_total"] is not None
+            else "예상 합계 산출 전")
+    checked = datetime.fromisoformat(q["checked_at"]).astimezone(ZoneInfo("Asia/Seoul"))
+    st.caption(f"판매처 조회 {checked:%Y-%m-%d %H:%M:%S} KST / 결제 시 금액과 재고가 달라질 수 있습니다.")
+
+
+def quote_panel(items, owner, group):
+    products = {buyer_server.product_key(item): item for item in items if product_quotes.supports(item)}
+    if not products:
+        return
+    with st.expander("사이즈 선택 및 견적"):
+        product = st.selectbox("견적 상품", list(products), key=f"quote_product_{group}",
+                               format_func=lambda k: f"{products[k]['seller']} / {products[k]['title']} {products[k].get('model_code') or ''}")
+        state_key = f"quote_preview_{group}"
+        saved_key = f"quote_saved_{group}"
+        state = st.session_state.get(state_key)
+        if st.button("옵션별 재고와 배송비 조회", key=f"lookup_{group}"):
+            st.session_state.pop(state_key, None)
+            try:
+                options = product_quotes.lookup(products[product])
+            except SEARCH_ERRORS as exc:
+                st.warning(f"판매처 옵션을 조회할 수 없습니다. {exc}")
+                return
+            state = st.session_state[state_key] = (product, options, uuid4().hex)
+            st.session_state[saved_key] = set()
+        if not state or state[0] != product:
+            return
+        _, options, revision = state
+        sku = st.selectbox("사이즈 또는 옵션", list(options), key=f"variant_{group}_{product}",
+                           format_func=lambda k: options[k]["option"])
+        quote = options[sku]
+        display_quote(quote)
+        if not owner:
+            st.caption("구매자별 저장은 개인용 실행 환경에서 사용할 수 있습니다.")
+            return
+        quote_id = f"{revision}:{sku}"
+        if quote_id in st.session_state.get(saved_key, ()):
+            st.caption("이 옵션의 견적을 저장했습니다.")
+            return
+        if st.button("내 견적 저장", key=f"quote_save_{group}", disabled=quote["stock"] in product_quotes.UNAVAILABLE):
+            try:
+                fresh = product_quotes.lookup(products[product], variant_id=sku)
+            except SEARCH_ERRORS as exc:
+                st.warning(f"저장 전 판매처 재조회에 실패했습니다. 다시 조회하세요. {exc}")
+                return
+            latest = fresh.get(sku)
+            if latest is None:
+                del st.session_state[state_key]
+                st.session_state.quote_notice = "판매처에서 선택한 옵션을 찾을 수 없습니다. 옵션 목록을 다시 조회하세요."
+                st.rerun()
+            if any(quote[k] != latest[k] for k in quote if k != "checked_at"):
+                options[sku] = latest
+                st.session_state.quote_notice = "판매처 정보가 바뀌었습니다. 새 견적을 확인한 뒤 저장하세요."
+                st.rerun()
+            buyer_server.save_quote(owner, quote_id, latest)
+            options[sku] = latest
+            st.session_state.setdefault(saved_key, set()).add(quote_id)
+            st.session_state.quote_notice = "선택한 옵션의 견적을 저장했습니다."
+            st.rerun()
+
+
+def quote_history(owner):
+    with st.sidebar.expander("내 저장 견적"):
+        history = dict(buyer_server.saved_quotes(owner))
+        if not history:
+            st.caption("저장된 견적이 없습니다.")
+            return
+
+        def history_label(key):
+            q = history[key]
+            when = datetime.fromisoformat(q["checked_at"]).astimezone(ZoneInfo("Asia/Seoul"))
+            return f"{q.get('model_code') or q['title']} / {q['option']} / {when:%m-%d %H:%M:%S}"
+        selected = st.selectbox("저장된 견적 (최근 50건)", list(history), format_func=history_label)
+        display_quote(history[selected])
 
 
 def show_results(result, owner, ratings):
@@ -151,6 +244,7 @@ def show_results(result, owner, ratings):
         st.subheader("중국 본토 출고 미확인")
         for item in sorted(pending, key=relevance):
             show_product(item)
+    quote_panel(items + pending, owner, result["market"])
     feedback_form(owner, items + pending, ratings, result["market"])
     links = result.get("browser_search", {})
     for key, label in (("naver", "네이버에서 검색"), ("danawa", "다나와에서 검색")):
@@ -169,9 +263,12 @@ def main():
         try:
             buyer_server.initialize()
             ratings = account_panel(owner)
+            quote_history(owner)
         except (OSError, sqlite3.Error):
             owner = None
             st.sidebar.warning("개인 메모리를 열 수 없습니다. 검색은 계속 사용할 수 있습니다.")
+    if notice := st.session_state.pop("quote_notice", None):
+        st.info(notice)
     market = st.selectbox("구매 국가", list(MARKETS), format_func=MARKETS.get)
     if MODEL_PATH.is_dir():
         st.audio_input("한국어로 말하기", sample_rate=16000, key="recording", on_change=use_recording,
@@ -188,6 +285,9 @@ def main():
         postal_code = st.text_input("한국 수령지 우편번호", max_chars=5) if use_ebay else None
         submitted = st.form_submit_button("검색", type="primary")
     if submitted:
+        for key in list(st.session_state):
+            if key.startswith(("quote_preview_", "quote_saved_")):
+                del st.session_state[key]
         st.session_state.pop("last_search", None)
         st.session_state.pop("overseas_search", None)
         if not keyword:

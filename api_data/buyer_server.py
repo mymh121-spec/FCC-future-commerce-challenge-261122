@@ -7,6 +7,8 @@ import sqlite3
 from contextlib import closing, contextmanager
 from pathlib import Path
 
+from product_quotes import UNAVAILABLE
+
 CURRENCIES = ("KRW", "USD", "JPY", "EUR", "CNH", "GBP", "AUD", "TWD")
 PRIORITIES = ("가격 우선", "도착일 우선")
 FEEDBACK = ("찾던 상품", "다른 상품", "배송 정보 부족")
@@ -38,6 +40,10 @@ def initialize():
                 buyer_id TEXT NOT NULL, product_key TEXT NOT NULL,
                 reason TEXT NOT NULL, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 PRIMARY KEY (buyer_id, product_key));
+            CREATE TABLE IF NOT EXISTS quote (
+                buyer_id TEXT NOT NULL, quote_id TEXT NOT NULL, snapshot TEXT NOT NULL,
+                saved_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (buyer_id, quote_id));
+            CREATE INDEX IF NOT EXISTS quote_buyer_saved ON quote(buyer_id, saved_at);
         """)
 
 
@@ -79,3 +85,19 @@ def set_feedback(owner, key, reason):
             db.execute("""INSERT INTO feedback(buyer_id,product_key,reason) VALUES (?,?,?)
                           ON CONFLICT(buyer_id,product_key) DO UPDATE SET reason=excluded.reason,
                           updated_at=CURRENT_TIMESTAMP""", (owner, key, reason))
+
+
+def save_quote(owner, quote_id, quote):
+    if not owner or quote["stock"] in UNAVAILABLE:
+        raise ValueError("구매자와 옵션 재고를 확인하세요.")
+    with connection() as db:
+        db.execute("""INSERT INTO quote(buyer_id,quote_id,snapshot) VALUES (?,?,?)
+                      ON CONFLICT(buyer_id,quote_id) DO NOTHING""",
+                   (owner, quote_id, json.dumps(quote, ensure_ascii=False)))
+
+
+def saved_quotes(owner):
+    with connection() as db:
+        rows = db.execute("""SELECT quote_id,snapshot FROM quote WHERE buyer_id=?
+                             ORDER BY saved_at DESC,rowid DESC LIMIT 50""", (owner,))
+        return [(key, json.loads(data)) for key, data in rows]

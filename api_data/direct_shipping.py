@@ -95,7 +95,7 @@ query Products($query: String!, $limit: Int!, $withOrigin: Boolean!, $language: 
   localization { availableLanguages { isoCode } }
   search(query: $query, first: $limit, types: [PRODUCT], unavailableProducts: HIDE) {
     nodes { ... on Product {
-      title onlineStoreUrl availableForSale
+      id title onlineStoreUrl availableForSale
       options @include(if: $withOrigin) { name values }
       priceRange { minVariantPrice { amount currencyCode } }
     } }
@@ -134,7 +134,8 @@ def storefront_page(host, seller, keyword, limit, market, language="KO"):
         row = offer(product["title"], url, money(price["amount"], currency), None,
                     "seller_check_required",
                     kr_direct_shipping="not_applicable" if market == "KR" else "unverified")
-        row.update(market=market, seller=seller, price_source="seller_catalog",
+        row.update(market=market, seller=seller, storefront_host=host, product_id=product.get("id"),
+                   price_source="seller_catalog",
                    price_basis="min_variant_price", checked_at=checked_at)
         if market == "CN" and mainland_dispatch(product.get("options", [])):
             row.update(dispatch_country="CN", dispatch_source="product_shipping_option")
@@ -161,15 +162,19 @@ def nike_query(keyword):
         return term
 
 
+def nike_page_props(url):
+    request = Request(url, headers={"User-Agent": "FCC-catalog/1.0"})
+    with urlopen(request, timeout=8) as response:
+        page = response.read().decode("utf-8")
+    data = re.search(r"""<script\b[^>]*\bid=["']__NEXT_DATA__["'][^>]*>(.*?)</script>""", page, re.S)
+    if not data:
+        raise ValueError("나이키 코리아 상품 정보를 읽을 수 없습니다.")
+    return json.loads(data[1])["props"]["pageProps"]
+
+
 def nike_korea(keyword, limit):
     url = "https://www.nike.com/kr/w?" + urlencode({"q": keyword})
-    request = Request(url, headers={"User-Agent": "FCC-catalog/1.0"})
-    with urlopen(request, timeout=5) as response:
-        page = response.read().decode("utf-8")
-    data = re.search(r'<script\b[^>]*\bid=["\']__NEXT_DATA__["\'][^>]*>(.*?)</script>', page, re.S)
-    if not data:
-        raise ValueError("나이키 코리아 상품 목록을 읽을 수 없습니다.")
-    wall = json.loads(data[1])["props"]["pageProps"]["initialState"]["Wall"]
+    wall = nike_page_props(url)["initialState"]["Wall"]
     groups = [group["products"] for group in wall["productGroupings"] if group.get("products")]
     codes = {code.upper() for code in NIKE_STYLE.findall(keyword)}
     checked_at = datetime.now(timezone.utc).isoformat()
