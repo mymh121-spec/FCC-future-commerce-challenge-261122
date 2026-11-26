@@ -134,11 +134,15 @@ def display_quote(q):
         return f"{Decimal(value):,f} {q['currency']}" if value is not None else "미확인"
 
     st.text(f"{q['seller']} / {q.get('model_code') or q['title']} / {q['option']} / {q['quantity']}개")
+    if q.get("destination_label"):
+        st.text(f"테스트 수령지 {q['destination_label']}")
     stock = product_quotes.STOCK_LABEL[q["stock"]]
     st.text(f"{stock} ({q['stock_level']})" if q["stock_level"] else stock)
     st.text(f"상품 표시가 {money(q['price'])}")
     if q["shipping"] is None:
         st.text("배송비 미확인")
+    elif q.get("shipping_status") == "address_rate":
+        st.text(f"서울역 직배송비 {money(q['shipping'])} ({q['shipping_basis']}, 판매처 견적)")
     else:
         st.text(f"예상 배송비 {money(q['shipping'])} ({q['shipping_basis']})")
     st.text(f"예상 합계 {money(q['estimated_total'])}" if q["estimated_total"] is not None
@@ -171,7 +175,7 @@ def quote_panel(items, owner, group):
         _, options, revision = state
         sku = st.selectbox("사이즈 또는 옵션", list(options), key=f"variant_{group}_{product}",
                            format_func=lambda k: options[k]["option"])
-        quote = options[sku]
+        quote = options[sku] = product_quotes.station_delivery(products[product], options[sku])
         display_quote(quote)
         if not owner:
             st.caption("구매자별 저장은 개인용 실행 환경에서 사용할 수 있습니다.")
@@ -191,6 +195,7 @@ def quote_panel(items, owner, group):
                 del st.session_state[state_key]
                 st.session_state.quote_notice = "판매처에서 선택한 옵션을 찾을 수 없습니다. 옵션 목록을 다시 조회하세요."
                 st.rerun()
+            latest = product_quotes.station_delivery(products[product], latest)
             if any(quote[k] != latest[k] for k in quote if k != "checked_at"):
                 options[sku] = latest
                 st.session_state.quote_notice = "판매처 정보가 바뀌었습니다. 새 견적을 확인한 뒤 저장하세요."
@@ -280,9 +285,10 @@ def main():
     use_ebay = market in EBAY_COUNTRIES and st.checkbox("eBay에서 검색")
     if market != "KR":
         st.caption("한국어 검색어와 일치하는 상품명이 없는 해외 판매처는 검색어를 MyMemory로 번역해 다시 조회합니다.")
+    st.caption(f"기본 테스트 수령지  {product_quotes.SEOUL_STATION}")
     with st.form("product_search"):
         keyword = st.text_input("상품명 또는 모델명", key="keyword").strip()
-        postal_code = st.text_input("한국 수령지 우편번호", max_chars=5) if use_ebay else None
+        postal_code = st.text_input("한국 수령지 우편번호", value=product_quotes.SEOUL_STATION_ZIP, max_chars=5) if use_ebay else None
         submitted = st.form_submit_button("검색", type="primary")
     if submitted:
         for key in list(st.session_state):

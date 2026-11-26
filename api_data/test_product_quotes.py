@@ -88,3 +88,30 @@ class QuoteTests(unittest.TestCase):
         self.assertEqual(self.lookup()["stock"], "available")
         with patch.object(quotes, "request_json", return_value=self.feed):
             self.assertEqual(quotes.lookup(self.item, variant_id="removed"), {})
+
+    def test_station_delivery_requires_matching_address_line_and_shipping_method(self):
+        item = dict(market="US", storefront_host="yosekastationery.com")
+        q = dict(self.lookup(), shipping_status="not_requested", shipping=None, shipping_basis=None,
+                 estimated_total=None)
+        dest = {"zip": "04320", "countryCodeV2": "KR", "provinceCode": "KR-11"}
+        def rate(method, fee, currency="KRW"):
+            return dict(title=method, deliveryMethodType=method, estimatedCost=dict(amount=fee, currencyCode=currency))
+        group = {"deliveryAddress": dest, "deliveryOptions": [rate("PICK_UP", "0"), rate("SHIPPING", "8"),
+                                                              rate("SHIPPING", "2", "USD"), rate("SHIPPING", "3")]}
+        line = {"quantity": 1, "merchandise": {"id": "s"},
+                "cost": {"amountPerQuantity": {"amount": "100", "currencyCode": "KRW"}}}
+        for groups, lines, expected in [
+            ([group], [line], "3"), ([dict(group, deliveryAddress=dict(dest, zip="99999"))], [line], None),
+            ([group], [dict(line, merchandise={"id": "other"})], None), ([], [line], None),
+            ([dict(group, deliveryOptions=[rate("PICK_UP", "0")])], [line], None),
+            ([dict(group, deliveryOptions=[rate("SHIPPING", "0")])], [line], "0"),
+        ]:
+            payload = dict(userErrors=[], warnings=[], cart={"deliveryGroups": {"nodes": groups}, "lines": {"nodes": lines}})
+            reply = {"extensions": {"context": {"country": "KR"}}, "data": {"cartCreate": payload}}
+            with self.subTest(expected=expected), patch.object(quotes, "request_json", return_value=reply) as request:
+                result = quotes.station_delivery(item, q)
+                self.assertEqual(result["shipping"], expected)
+                self.assertEqual(result["estimated_total"], str(100 + int(expected)) if expected is not None else None)
+                self.assertEqual(result["destination_label"], quotes.SEOUL_STATION)
+                self.assertEqual(quotes.station_delivery(item, result), result)
+                request.assert_called_once()

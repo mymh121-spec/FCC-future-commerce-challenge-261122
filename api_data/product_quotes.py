@@ -7,6 +7,23 @@ from urllib.parse import quote, urlsplit
 from direct_shipping import SEARCH_ERRORS, STOREFRONTS, nike_page_props, request_json
 
 NIKE_CHANNEL = "d9a5bc42-4b9c-4976-858a-f159cf99c647"
+SEOUL_STATION_ZIP = "04320"
+SEOUL_STATION = f"서울역 (서울특별시 용산구 한강대로 405, {SEOUL_STATION_ZIP})"
+CART_RATES = """
+mutation Rates($input: CartInput!) @inContext(country: KR) {
+  cartCreate(input: $input) {
+    userErrors { code } warnings { code }
+    cart {
+      lines(first: 2) { nodes { quantity merchandise { ... on ProductVariant { id } }
+                                 cost { amountPerQuantity { amount currencyCode } } } }
+      deliveryGroups(first: 2) { nodes {
+        deliveryAddress { zip countryCodeV2 provinceCode }
+        deliveryOptions { title deliveryMethodType estimatedCost { amount currencyCode } }
+      } }
+    }
+  }
+}
+"""
 STOCK_LABEL = {
     "available": "온라인 재고 있음", "sold_out": "온라인 품절", "unknown": "재고 미확인",
     "for_sale": "판매 가능 (배송 재고 미확인)", "backorder": "재고 소진 후 주문 접수 가능",
@@ -147,9 +164,62 @@ def lookup(item, variant_id=None):
         quotes[variant["variant_id"]] = {
             **variant, "seller": item["seller"], "title": item["title"], "url": item["url"],
             "model_code": item.get("model_code"), "quantity": 1, "destination": "KR",
+            "destination_label": SEOUL_STATION, "destination_postal_code": SEOUL_STATION_ZIP,
             "shipping": shipping, "shipping_basis": basis, "estimated_total": total,
+            "shipping_status": ("policy_estimate" if shipping is not None else "unknown")
+                               if item["seller"] == "나이키 코리아" else "not_requested",
             "price_status": "estimated", "checked_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         }
     if not quotes and variant_id is None:
         raise ValueError("판매처에 표시된 옵션이 없습니다.")
     return quotes
+
+def station_delivery(item, q):
+    """선택한 옵션 한 개의 한국 배송비를 판매처의 독립된 임시 장바구니로 조회한다."""
+    if q.get("shipping_status") != "not_requested":
+        return q
+    result = dict(q, shipping_status="unknown")
+    if q["stock"] in UNAVAILABLE:
+        return result
+    if item.get("storefront_host") not in STOREFRONTS.get(item.get("market"), {}):
+        return result
+    address = {"address1": "405 Hangang-daero", "city": "Yongsan-gu", "provinceCode": "KR-11",
+               "countryCode": "KR", "zip": SEOUL_STATION_ZIP}
+    cart_input = {"buyerIdentity": {"countryCode": "KR"},
+                  "lines": [{"merchandiseId": q["variant_id"], "quantity": 1}],
+                  "delivery": {"addresses": [{"address": {"deliveryAddress": address},
+                                              "selected": True, "oneTimeUse": True}]}}
+    try:
+        reply = request_json(f"https://{item['storefront_host']}/api/2026-10/graphql.json", timeout=8,
+                             json_body={"query": CART_RATES, "variables": {"input": cart_input}})
+        if reply.get("errors") or reply.get("extensions", {}).get("context", {}).get("country") != "KR":
+            return result
+        payload = reply["data"]["cartCreate"]
+        if payload["userErrors"] or payload["warnings"] or not payload["cart"]:
+            return result
+        lines = payload["cart"]["lines"]["nodes"]
+        if len(lines) != 1 or lines[0]["quantity"] != 1 or lines[0]["merchandise"]["id"] != q["variant_id"]:
+            return result
+        groups = payload["cart"]["deliveryGroups"]["nodes"]
+        if len(groups) != 1:
+            return result
+        dest = groups[0]["deliveryAddress"]
+        if (dest["countryCodeV2"], dest["provinceCode"], dest["zip"]) != ("KR", "KR-11", SEOUL_STATION_ZIP):
+            return result
+        unit_price = lines[0]["cost"]["amountPerQuantity"]
+        price = amount(unit_price["amount"])
+        if price is None or unit_price["currencyCode"] != q["currency"]:
+            return result
+        rates = []
+        for option in groups[0]["deliveryOptions"]:
+            cost = option["estimatedCost"]
+            fee = amount(cost["amount"])
+            if option["deliveryMethodType"] == "SHIPPING" and cost["currencyCode"] == q["currency"] and fee is not None:
+                rates.append((Decimal(fee), option["title"] or "일반 배송"))
+        if rates:
+            fee, method = min(rates)
+            result.update(shipping=str(fee), shipping_basis=method, shipping_status="address_rate",
+                          price=price, estimated_total=str(Decimal(price) + fee))
+    except SEARCH_ERRORS:
+        return result
+    return result
