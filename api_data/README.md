@@ -1,14 +1,16 @@
 # 한국 배송 상품 및 원화 시세 조회 API
 
-[direct_shipping.py](./direct_shipping.py)는 Python 표준 라이브러리로 시장 한 곳의 상품을 검색한다. 해외 배송 목적지는 한국으로 고정한다.
+[direct_shipping.py](./direct_shipping.py)는 Python 표준 라이브러리로 국가를 선택하거나 전체 국가의 상품을 병렬로 검색한다. 해외 배송 목적지는 한국으로 고정한다.
 
 | 시장 코드 | 데이터 출처 | 한국 배송 범위 |
 | --- | --- | --- |
 | KR | [Yo! Korea](https://yokorea.store/ko), [Pesado Korea](https://pesado585.co.kr/collections/all) | 한국 시장에 판매 중인 상품의 옵션 최저 표시가와 구매 링크를 조회한다. 배송비와 개별 주소의 배송 가능 여부는 판매처에서 확인한다. |
-| US | [eBay Browse](https://developer.ebay.com/api-docs/buy/static/ref-buy-browse-filters.html) | 미국 소재 상품을 한국 수령지 우편번호로 필터링해 직배송 후보를 조회한다. |
-| DE, FR, GB, IT, ES | [eBay 유럽 마켓](https://developer.ebay.com/api-docs/buy/static/ref-marketplace-supported.html) | 독일, 프랑스, 영국, 이탈리아, 스페인을 각각 조회한다. 선택한 마켓 국가에 있는 상품에 미국과 같은 배송 조건을 적용한다. |
-| JP | [라쿠텐 이치바 상품 검색](https://webservice.rakuten.co.jp/documentation/ichiba-item-search) | 해외 배송 플래그와 [한국 배송 지역 코드](https://webservice.rakuten.co.jp/documentation/areacode/shipoverseasarea)를 함께 적용한다. 해외 배송비는 판매처에서 확인한다. |
-| CN | [AliExpress 제휴 상품 검색](https://openservice.aliexpress.com/doc/api.htm#/api?cid=21407&path=aliexpress.affiliate.product.query&methodType=GET%2FPOST), [상품 운임 조회](https://openservice.aliexpress.com/doc/api.htm#/api?cid=21407&path=aliexpress.affiliate.product.shipping.get&methodType=GET%2FPOST) | 한국 수령 조건으로 검색한 뒤 상품 옵션별 배송 정보를 조회한다. 중국 출고가 확인된 상품은 `items`에, 출고국을 확인할 수 없는 검색 결과는 `dispatch_unverified_items`에 담는다. |
+| US, GB | [Yoseka Stationery](https://yosekastationery.com/)와 [Cult Pens](https://cultpens.com/) | 미국과 영국의 문구 판매처에서 한국 시장에 표시하는 상품을 각각 조회한다. 상품별 직배송 여부와 배송비는 주문 전에 확인한다. |
+| DE, FR, IT, ES | [Papier & Stift](https://www.papierundstift.de/), [L’Art du Papier](https://www.art-du-papier.fr/), [San Rocco Italia](https://sanroccoitalia.it/), [Twojeys](https://twojeys.com/) | 각 판매처의 한국 시장용 카탈로그를 조회한다. 판매처 국가는 개별 상품의 출고지를 보장하지 않는다. |
+| JP | [Japanese Taste 한국몰](https://japanesetaste.kr/)과 [SmikieJapan](https://www.smikiejapan.com/ko-kr) | 두 판매처의 한국용 공개 카탈로그에서 재고가 있는 상품과 판매처 표시 통화의 옵션 최저가를 조회한다. |
+| CN | [LAPSANGSTORE](https://lapsangstore.com/)와 [Stationery Pal](https://stationerypal.com/) | 한국 시장용 공개 카탈로그 두 곳을 조회한다. 상품별 본토 출고 확인 여부를 나누고 판매처의 표시 통화로 가격을 보여준다. |
+| AU | [Boody](https://www.boody.com.au/pages/delivery-policy), [OZAN Warehouse](https://ozanwarehouse.com/) | 두 판매처의 한국 배송용 카탈로그를 검색한다. Boody는 멜버른에서, OZAN은 시드니에서 출고한다고 안내한다. |
+| TW | [YSTUDIO](https://www.ystudiostyle.com/pages/faqs) | 타이베이에서 해외로 발송하는 문구 판매처의 한국 시장용 카탈로그를 검색한다. |
 
 ## 실행
 
@@ -16,15 +18,58 @@ Python 3.8 이상에서 저장소 루트를 기준으로 실행한다. 판매처
 
 | 시장 | 환경변수 |
 | --- | --- |
-| US 및 유럽 | `EBAY_CLIENT_ID`, `EBAY_CLIENT_SECRET`. [Browse 운영 접근 승인](https://developer.ebay.com/api-docs/buy/static/buy-requirements.html)이 필요하다. |
-| JP | `RAKUTEN_APP_ID`, `RAKUTEN_ACCESS_KEY`. 앱에 허용한 웹사이트를 지정할 때는 `RAKUTEN_ORIGIN`에 해당 사이트의 origin을 넣는다. |
-| CN | `ALIEXPRESS_APP_KEY`, `ALIEXPRESS_APP_SECRET`. TOP에서 제휴 상품 검색과 상품 운임 조회를 모두 호출할 수 있는 앱 키를 사용한다. |
+| eBay 선택 시 (US 및 유럽) | `EBAY_CLIENT_ID`, `EBAY_CLIENT_SECRET`. [Browse 운영 접근 승인](https://developer.ebay.com/api-docs/buy/static/buy-requirements.html)이 필요하다. |
+| 전체 공개 판매처 | 기본 검색에 로그인과 API 키가 필요하지 않다. |
 
 ```text
 python3 api_data/direct_shipping.py 시장코드 "검색어" [--postal-code 한국우편번호] [--limit 조회건수]
 ```
 
-eBay는 한국 수령지 우편번호 5자리가 필수다. 조회 건수는 기본 5개이며 중국은 옵션 ID, 세율과 원화 가격이 있는 후보마다 배송 정보를 한 번 더 조회한다. 옵션 정보가 부족하거나 배송 호출이 실패해도 출고 미확인 후보에 상품명과 링크를 남긴다. 상품별 배송 조회 오류는 `shipping_errors`에 기록한다. 중국 이외 국가에서 출고되는 상품은 제외한다.
+미국과 유럽에서 eBay를 조회하려면 한국 우편번호 5자리를 `--postal-code`로 전달한다. 우편번호를 생략하면 해당 국가의 공개 판매처를 조회한다.
+
+### 한국어 통합 검색
+
+```sh
+python3 api_data/direct_shipping.py ALL "만년필" --limit 20
+```
+
+한 번에 최대 6곳을 조회한다. 원래 검색어에 한글이 있고 받아온 상품명에 검색어가 일치하지 않는 해외 판매처만 다시 검색한다. 판매처의 한국 시장에서 현지어를 지원하면 그 언어를 쓰고, 영어만 지원하면 영어를 쓴다. 한국어만 지원하는 판매처에서는 원문과 일치하는 상품을 사용한다. 번역 후에도 검색어의 각 단어가 상품명에 들어 있는지 확인한다. 동의어나 별칭만 있는 상품은 빠질 수 있다. 통합 검색은 공개 판매처를 대상으로 하며 판매처별 결과를 한 건씩 번갈아 담는다. CLI 기본값은 전체 합계 5건이며 화면에서 전체 국가를 선택하면 최대 20건이다. 중국 본토 출고 미확인 상품도 이 한도에 포함한다.
+
+재검색이 필요할 때만 외부 MyMemory API에 검색어를 보내며 같은 검색에서 같은 언어의 번역은 한 번만 요청한다. 익명 이용 한도는 하루 5,000자이며 한 요청의 원문은 최대 500바이트다. 번역 또는 판매처 조회에 실패하면 해당 판매처의 오류를 표시하고 다른 결과를 제공한다. 판매처별 번역어는 `translated_queries`에서 확인한다. 상품명과 통화는 판매처 응답을 그대로 사용한다. [MyMemory API 명세](https://mymemory.translated.net/doc/spec.php), [익명 이용 한도](https://mymemory.translated.net/doc/usagelimits.php)
+
+
+### 호주와 대만 상품 검색
+
+MVP에서 Boody와 OZAN Warehouse, YSTUDIO의 결제 안내 범위는 법정통화로 한정한다(`mvp_payment_scope=fiat_only`). 확인한 상품의 표시 통화는 두 호주 판매처가 AUD, 대만 YSTUDIO가 USD다. 세 곳 모두 스테이블코인 직접 결제 지원은 미확인이다. [Boody 결제 안내](https://www.boody.com.au/pages/help-center), [OZAN 공식몰](https://ozanwarehouse.com/), [YSTUDIO 결제 안내](https://www.ystudiostyle.com/pages/faqs)
+
+구매 국가에서 호주 또는 대만을 선택한다. 한국어 검색어를 각 판매처에 전달하고 응답에 들어 있는 상품명과 표시 통화, 옵션 최저가를 보여준다. 선택한 옵션의 한국 배송비는 판매처에서 확인한다.
+
+```sh
+python3 api_data/direct_shipping.py AU "양말"
+python3 api_data/direct_shipping.py AU "꿀"
+python3 api_data/direct_shipping.py TW "만년필"
+```
+
+### 중국 상품 검색
+
+```sh
+python3 api_data/direct_shipping.py CN "홍차"
+python3 api_data/direct_shipping.py CN "볼펜"
+```
+
+두 판매처에 같은 한국어 검색어를 보내고 조회 건수 한도 내에서 결과를 번갈아 선택한다. 상품의 출고지 옵션이 중국 본토만을 가리키면 `items`에 담고, 출고지 옵션이 없거나 본토로 특정할 수 없으면 `dispatch_unverified_items`에 담아 화면에서 따로 보여준다. LAPSANGSTORE는 한국을 포함한 해외 창고를 운영하고 Stationery Pal은 홍콩과 중국 본토에서 발송한다. 한국 수령 가능 여부와 운임은 선택한 옵션과 배송지로 다시 확인한다. [LAPSANGSTORE 창고 안내](https://lapsangstore.com/pages/about-zhengshantang-lapsangstore), [Stationery Pal 출고 안내](https://stationerypal.com/pages/faq)
+
+`price`에는 판매처가 제공하는 옵션 최저가와 통화 코드를 담는다. 검색 화면은 이 값을 그대로 표시한다.
+
+### 일본 상품 검색
+
+검색 화면에서 구매 국가로 일본을 선택하거나 아래 명령을 실행한다.
+
+```sh
+python3 api_data/direct_shipping.py JP "말차" --limit 6
+```
+
+두 판매처에 같은 검색어를 보내고 판매처별 결과를 번갈아 표시한다. 조회 건수는 두 곳을 합친 상한이다. 한 곳의 요청이 실패해도 다른 곳의 결과를 반환하며 실패한 판매처는 `errors`에 기록한다. 각 판매처가 한국 배송을 지원하지만 선택한 옵션의 직배송 가능 여부와 운임은 주문 화면에서 확인한다. [Japanese Taste 안내](https://japanesetaste.com/pages/help-center), [SmikieJapan 안내](https://www.smikiejapan.com/en-kr/pages/about-us)
 
 ### 국내 상품 검색
 
@@ -55,17 +100,17 @@ python3 api_data/direct_shipping.py KR "선택한 상품명과 옵션" --selecte
 Ubuntu 데스크톱에서는 잠금이 설정된 로그인 키링에 키를 보관한다. Secret Service와 이를 호출하는 `secret-tool` 명령이 필요하다. Ubuntu의 명령 패키지는 `libsecret-tools`다. 아래 명령을 터미널에서 한 줄씩 실행하고 입력 프롬프트가 뜨면 해당 값을 붙여 넣는다. 키 자체는 명령줄이나 프로젝트 파일에 쓰지 않는다.
 
 ```bash
-secret-tool store --label="FCC 라쿠텐 App ID" service fcc-commerce name RAKUTEN_APP_ID
-secret-tool store --label="FCC 라쿠텐 Access Key" service fcc-commerce name RAKUTEN_ACCESS_KEY
+secret-tool store --label="FCC eBay Client ID" service fcc-commerce name EBAY_CLIENT_ID
+secret-tool store --label="FCC eBay Client Secret" service fcc-commerce name EBAY_CLIENT_SECRET
 ```
 
-eBay와 AliExpress도 위 표의 키 이름으로 각각 등록한다. 키를 교체할 때는 같은 이름으로 다시 저장한다. 서버 배포 시에는 배포 환경의 비밀 저장소에서 같은 환경변수로 주입한다. [secret-tool 사용법](https://manpages.ubuntu.com/manpages/noble/man1/secret-tool.1.html)
+키를 교체할 때는 같은 이름으로 다시 저장한다. 서버 배포 시에는 배포 환경의 비밀 저장소에서 같은 환경변수로 주입한다. [secret-tool 사용법](https://manpages.ubuntu.com/manpages/noble/man1/secret-tool.1.html)
 
 ## 응답 해석
 
 - `kr_direct_shipping`은 상품별 한국 직배송 확인 상태다. 해외 실물 상품은 `unverified`(확인 필요)로 표시한다. 한국 배송 필터를 통과하거나 운임 견적이 있어도 선택한 옵션과 수량을 실제 한국 주소로 받을 수 있는지는 판매처에서 확인해야 한다. 국내 쇼핑 검색 결과와 배송이 필요 없는 상품에는 `not_applicable`을 사용한다.
 - `seller_check_required`는 판매처에서 배송 가능 여부를 확인해야 하는 상품이다. `destination_filter`는 한국 배송 조건으로 검색된 후보이며, `freight_quote`는 운임 조회에서 배송편을 확인한 후보다.
-- `price`와 `shipping`에는 금액과 통화를 각각 담는다. 배송비가 없으면 `null`, 무료 배송을 명시한 응답은 금액 `"0"`이다. 상품가에 배송비나 세금이 모두 포함됐다고 가정하지 않는다.
+- 해외 검색은 환율을 조회하지 않고 상품가(`price`)와 배송비(`shipping`)를 각각 판매처가 제공한 통화로 표시한다. eBay가 환산 전 금액과 통화를 함께 제공하면 그 값을 사용한다. 배송비가 없으면 `null`, 무료 배송을 명시한 응답은 금액 `"0"`이다. 상품가에 배송비나 세금이 모두 포함됐다고 가정하지 않는다.
 - `market`은 검색 시장이다. 출고국을 확인할 수 없는 응답에서는 `dispatch_country`를 `null`로 둔다. 특정 옵션이나 수량의 최종 결제액은 판매처에서 확인한다.
 
 ## 법정통화 환율과 스테이블코인 시세
@@ -150,4 +195,4 @@ curl -fL https://alphacephei.com/vosk/models/vosk-model-small-ko-0.22.zip -o .ve
 .venv-search/bin/python -m streamlit run api_data/search_app.py --server.address=127.0.0.1 --server.headless=true --browser.gatherUsageStats=false
 ```
 
-터미널에 표시되는 로컬 주소를 연다. 음성 입력을 쓸 때만 브라우저의 마이크 권한을 허용한다. 음성 인식에는 API 키가 필요 없으며 해외 상품 검색에는 위에 설명한 판매처별 키가 필요하다.
+터미널에 표시되는 로컬 주소를 연다. 음성 입력을 쓸 때만 브라우저의 마이크 권한을 허용한다. 음성 인식에는 API 키가 필요 없으며 전체 국가의 공개 판매처 검색도 키 없이 사용할 수 있다. eBay 검색에는 위 표의 키가 필요하다.

@@ -7,7 +7,11 @@ import json
 import os
 import re
 import subprocess
+import unicodedata
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
+from html import unescape
+from http.client import HTTPException
 from itertools import zip_longest
 from time import time_ns
 from urllib.error import HTTPError, URLError
@@ -68,11 +72,31 @@ def offer(title, url, price, shipping, status, dispatch=None, *, kr_direct_shipp
 
 
 KR_STORES = {"yokorea.store": "Yo! Korea", "pesado585.co.kr": "Pesado Korea"}
+JP_STORES = {"japanesetaste.kr": "Japanese Taste", "www.smikiejapan.com": "SmikieJapan"}
+CN_STORES = {"lapsangstore.com": "LAPSANGSTORE", "stationerypal.com": "Stationery Pal"}
+STOREFRONTS = {
+    "KR": KR_STORES,
+    "JP": JP_STORES,
+    "CN": CN_STORES,
+    "US": {"yosekastationery.com": "Yoseka Stationery"},
+    "GB": {"cultpens.com": "Cult Pens"},
+    "DE": {"www.papierundstift.de": "Papier & Stift"},
+    "FR": {"www.art-du-papier.fr": "L’Art du Papier"},
+    "IT": {"sanroccoitalia.it": "San Rocco Italia"},
+    "ES": {"twojeys.com": "Twojeys"},
+    "AU": {"www.boody.com.au": "Boody", "ozanwarehouse.com": "OZAN Warehouse"},
+    "TW": {"www.ystudiostyle.com": "YSTUDIO"},
+}
+MARKET_LANGUAGE = {"JP": "JA", "CN": "ZH_CN", "TW": "ZH_TW", "DE": "DE", "FR": "FR",
+                   "IT": "IT", "ES": "ES"}
+SEARCH_ERRORS = (OSError, HTTPException, RuntimeError, ValueError, KeyError, TypeError)
 KR_CATALOG_QUERY = """
-query Products($query: String!, $limit: Int!) @inContext(country: KR, language: KO) {
+query Products($query: String!, $limit: Int!, $withOrigin: Boolean!, $language: LanguageCode!) @inContext(country: KR, language: $language) {
+  localization { availableLanguages { isoCode } }
   search(query: $query, first: $limit, types: [PRODUCT], unavailableProducts: HIDE) {
     nodes { ... on Product {
       title onlineStoreUrl availableForSale
+      options @include(if: $withOrigin) { name values }
       priceRange { minVariantPrice { amount currencyCode } }
     } }
   }
@@ -80,10 +104,21 @@ query Products($query: String!, $limit: Int!) @inContext(country: KR, language: 
 """
 
 
-def korean_store_offers(host, keyword, limit):
+def mainland_dispatch(options):
+    origin_names = {"ships from", "ship from", "dispatch country", "출고지", "발송지", "发货地"}
+    mainland = {"cn", "mainland china", "china mainland", "중국 본토", "中国大陆", "中国内地"}
+    for option in options:
+        if option["name"].strip().casefold() in origin_names:
+            values = {value.strip().casefold() for value in option["values"]}
+            return bool(values) and values <= mainland
+    return False
+
+
+def storefront_page(host, seller, keyword, limit, market, language="KO"):
     response = request_json(
         f"https://{host}/api/2026-10/graphql.json",
-        json_body={"query": KR_CATALOG_QUERY, "variables": {"query": keyword, "limit": limit}},
+        json_body={"query": KR_CATALOG_QUERY, "variables": {"query": keyword, "limit": limit,
+                  "withOrigin": market == "CN", "language": language}},
     )
     if response.get("errors") or response.get("extensions", {}).get("context", {}).get("country") != "KR":
         raise RuntimeError("한국 시장의 상품 응답을 확인할 수 없습니다.")
@@ -92,34 +127,113 @@ def korean_store_offers(host, keyword, limit):
     for product in response["data"]["search"]["nodes"]:
         price = product["priceRange"]["minVariantPrice"]
         url = product.get("onlineStoreUrl")
-        if not product["availableForSale"] or not url or price["currencyCode"] != "KRW":
+        currency = price["currencyCode"]
+        if not product["availableForSale"] or not url or (market == "KR" and currency != "KRW"):
             continue
-        row = offer(product["title"], url, money(price["amount"], "KRW"), None,
-                    "seller_check_required", kr_direct_shipping="not_applicable")
-        row.update(seller=KR_STORES[host], price_source="seller_catalog",
+        row = offer(product["title"], url, money(price["amount"], currency), None,
+                    "seller_check_required",
+                    kr_direct_shipping="not_applicable" if market == "KR" else "unverified")
+        row.update(market=market, seller=seller, price_source="seller_catalog",
                    price_basis="min_variant_price", checked_at=checked_at)
+        if market == "CN" and mainland_dispatch(product.get("options", [])):
+            row.update(dispatch_country="CN", dispatch_source="product_shipping_option")
         rows.append(row)
-    return rows
+    languages = {lang["isoCode"] for lang in response["data"]["localization"]["availableLanguages"]}
+    return rows, languages
 
 
-def korean_search(keyword, limit):
-    # Keep each shop's relevance order and give both shops room in the result.
-    batches = []
+def title_matches(title, keyword):
+    title = unicodedata.normalize("NFKC", title).casefold()
+    terms = re.findall(r"[^\W_]+", unicodedata.normalize("NFKC", keyword).casefold())
+    return bool(terms) and all(term in title for term in terms)
+
+
+def translate_keyword(keyword, language):
+    if len(keyword.encode("utf-8")) > 500:
+        raise ValueError("번역할 검색어가 500바이트를 넘습니다.")
+    target = language.replace("_", "-").lower()
+    response = request_json("https://api.mymemory.translated.net/get",
+                            query={"q": keyword, "langpair": "ko|" + target})
+    if str(response.get("responseStatus")) != "200" or response.get("quotaFinished"):
+        raise RuntimeError(f"MyMemory 번역 실패 (상태 {response.get('responseStatus')})")
+    translated = unescape(response["responseData"]["translatedText"]).strip()
+    if not translated:
+        raise ValueError("번역된 검색어가 비어 있습니다.")
+    # Keep Latin brand names and model codes if the translator drops or rewrites them.
+    identifiers = re.findall(r"[A-Za-z0-9]+(?:[-./+][A-Za-z0-9]+)*", keyword)
+    for token in identifiers:
+        if token.casefold() not in translated.casefold():
+            translated += " " + token
+    return translated
+
+
+def storefront_search(market, keyword, limit):
+    markets = STOREFRONTS if market == "ALL" else {market: STOREFRONTS[market]}
+    stores = [(country, host, seller) for country, shops in markets.items() for host, seller in shops.items()]
+    batches = {}
     errors = {}
-    for host, seller in KR_STORES.items():
-        try:
-            batches.append(korean_store_offers(host, keyword, limit))
-        except (URLError, TimeoutError, RuntimeError, ValueError, KeyError, TypeError) as exc:
-            errors[seller] = str(exc)
-    items = [row for group in zip_longest(*batches) for row in group if row is not None]
-    terms = keyword.casefold().split()
-    items.sort(key=lambda row: sum(term not in row["title"].casefold() for term in terms))
-    query = urlencode({"query": keyword})
-    return {"market": "KR", "destination_country": "KR", "items": items[:limit],
-            "errors": errors, "browser_search": {
-                "danawa": "https://search.danawa.com/dsearch.php?" + query,
-                "naver": "https://search.naver.com/search.naver?" + query,
-            }}
+    retry = {}
+    translations = {}
+    korean = bool(re.search(r"[가-힣]", keyword))
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        first = {seller: pool.submit(storefront_page, host, seller, keyword, limit, country)
+                 for country, host, seller in stores}
+        for country, host, seller in stores:
+            try:
+                rows, languages = first[seller].result()
+            except SEARCH_ERRORS as exc:
+                errors[seller] = str(exc)
+                continue
+            if korean:
+                rows = [row for row in rows if title_matches(row["title"], keyword)]
+            batches[seller] = rows
+            if rows or not korean or country == "KR":
+                continue
+            preferred = MARKET_LANGUAGE.get(country, "EN")
+            language = preferred if preferred in languages else "EN"
+            if language in languages:
+                retry[seller] = (country, host, language)
+                if language not in translations:
+                    translations[language] = pool.submit(translate_keyword, keyword, language)
+
+        retries = {}
+        queries = {}
+        for seller, (country, host, language) in retry.items():
+            try:
+                translated = translations[language].result()
+            except SEARCH_ERRORS as exc:
+                errors[seller] = f"검색어 번역 실패 ({language}) {exc}"
+                continue
+            if translated.casefold() == keyword.casefold():
+                continue
+            queries[seller] = {"language": language, "keyword": translated}
+            retries[seller] = pool.submit(storefront_page, host, seller, translated, limit, country, language)
+        for seller, future in retries.items():
+            try:
+                rows, _ = future.result()
+                batches[seller] = [row for row in rows if title_matches(row["title"], queries[seller]["keyword"])]
+            except SEARCH_ERRORS as exc:
+                errors[seller] = str(exc)
+
+    items = [row for group in zip_longest(*batches.values()) for row in group if row is not None]
+    result = {"market": market, "destination_country": "KR", "errors": errors, "translated_queries": queries}
+    if market in ("AU", "TW"):
+        result["mvp_payment_scope"] = "fiat_only"
+    if market == "KR":
+        terms = keyword.casefold().split()
+        items.sort(key=lambda row: sum(term not in row["title"].casefold() for term in terms))
+        query = urlencode({"query": keyword})
+        result["browser_search"] = {
+            "danawa": "https://search.danawa.com/dsearch.php?" + query,
+            "naver": "https://search.naver.com/search.naver?" + query,
+        }
+    selected = items[:limit]
+    if market in ("ALL", "CN"):
+        result["dispatch_unverified_items"] = [row for row in selected
+                                               if row["market"] == "CN" and row["dispatch_country"] is None]
+        selected = [row for row in selected if row["market"] != "CN" or row["dispatch_country"] is not None]
+    result["items"] = selected
+    return result
 
 
 def naver_web_search(keyword, limit):
@@ -165,6 +279,11 @@ def rakuten(keyword, limit):
                   None, "destination_filter") for item in items]
 
 
+def ebay_money(amount):
+    original = money(amount.get("convertedFromValue"), amount.get("convertedFromCurrency"))
+    return original or money(amount.get("value"), amount.get("currency"))
+
+
 def ebay(country, keyword, limit, postal_code):
     if not re.fullmatch(r"[0-9]{5}", postal_code or ""):
         raise ValueError("eBay 조회에는 한국 우편번호 5자리가 필요합니다.")
@@ -193,8 +312,8 @@ def ebay(country, keyword, limit, postal_code):
         options = item.get("shippingOptions") or []
         cost = next((s["shippingCost"] for s in options if s.get("shippingCost")), {})
         price = item["price"]
-        offers.append(offer(item["title"], item["itemWebUrl"], money(price["value"], price["currency"]),
-                            money(cost.get("value"), cost.get("currency")), "destination_filter", country))
+        offers.append(offer(item["title"], item["itemWebUrl"], ebay_money(price),
+                            ebay_money(cost), "destination_filter", country))
     return offers
 
 
@@ -259,25 +378,34 @@ def aliexpress(keyword, limit):
 
 
 def search(market, keyword, limit=5, postal_code=None):
-    """한 시장의 첫 검색 페이지에서 한국 배송 후보를 조회한다."""
+    """선택한 판매처의 첫 검색 페이지에서 한국 배송 후보를 조회한다."""
     if not keyword.strip() or not 1 <= limit <= 30:
         raise ValueError("검색어와 1~30 사이의 조회 건수가 필요합니다.")
-    if market == "KR":
-        return korean_search(keyword, limit)
-    if market == "CN":
-        return aliexpress_search(keyword, limit)
-    if market in EBAY_COUNTRIES:
+    if market in EBAY_COUNTRIES and postal_code is not None:
         items = ebay(market, keyword, limit, postal_code)
-    elif market == "JP":
-        items = rakuten(keyword, limit)
-    else:
-        raise ValueError(f"지원하지 않는 시장 {market}")
-    return {"market": market, "destination_country": "KR", "items": items}
+        result = {"market": market, "destination_country": "KR", "items": items}
+        korean = bool(re.search(r"[가-힣]", keyword))
+        if korean:
+            result["items"] = [row for row in items if title_matches(row["title"], keyword)]
+        if not result["items"] and korean:
+            language = MARKET_LANGUAGE.get(market, "EN")
+            try:
+                translated = translate_keyword(keyword, language)
+                if translated.casefold() != keyword.casefold():
+                    result["translated_queries"] = {"eBay": {"language": language, "keyword": translated}}
+                    rows = ebay(market, translated, limit, postal_code)
+                    result["items"] = [row for row in rows if title_matches(row["title"], translated)]
+            except SEARCH_ERRORS as exc:
+                result["errors"] = {"eBay": str(exc)}
+        return result
+    if market == "ALL" or market in STOREFRONTS:
+        return storefront_search(market, keyword, limit)
+    raise ValueError(f"지원하지 않는 시장 {market}")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("market", choices=("KR", *EBAY_COUNTRIES, "JP", "CN"))
+    parser.add_argument("market", choices=("ALL", *STOREFRONTS))
     parser.add_argument("keyword")
     parser.add_argument("--postal-code", help="한국 수령지 우편번호 (eBay 필수)")
     parser.add_argument("--limit", type=int, default=5)

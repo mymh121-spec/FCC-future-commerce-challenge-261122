@@ -14,8 +14,9 @@ from direct_shipping import EBAY_COUNTRIES, search
 
 MODEL_PATH = Path(sys.prefix) / "share/fcc-search/vosk-model-small-ko-0.22"
 MARKETS = {
-    "KR": "한국", "US": "미국", "JP": "일본", "CN": "중국", "DE": "독일",
+    "KR": "한국", "ALL": "전체 국가", "US": "미국", "JP": "일본", "CN": "중국", "DE": "독일",
     "FR": "프랑스", "GB": "영국", "IT": "이탈리아", "ES": "스페인",
+    "AU": "호주", "TW": "대만",
 }
 
 
@@ -61,27 +62,46 @@ def use_recording():
         st.session_state.voice_notice = "말소리를 인식하지 못했습니다. 다시 녹음하거나 검색어를 입력하세요."
 
 
+def show_product(item):
+    st.text(item["title"])
+    price = item.get("price")
+    amount = f"{price['amount']} {price['currency']}" if price else "가격 미확인"
+    if price and item.get("price_basis") == "min_variant_price":
+        amount += "부터"
+    shipping = item.get("shipping")
+    freight = f"배송비 {shipping['amount']} {shipping['currency']}" if shipping else "배송비 미확인"
+    details = [MARKETS.get(item.get("market")), item.get("seller"), amount, freight]
+    if item.get("market") in ("AU", "TW"):
+        details.append("법정통화 결제")
+    if item.get("kr_direct_shipping") == "unverified":
+        details.append("한국 직배송 미확인")
+    st.caption(" / ".join(filter(None, details)))
+    if urlsplit(item["url"] or "").scheme in ("http", "https"):
+        st.link_button("상품 보기", item["url"])
+
+
 def show_results(result):
+    if result.get("mvp_payment_scope") == "fiat_only":
+        st.caption("이 판매처는 법정통화 결제만 안내합니다. 스테이블코인 직접 결제는 미확인입니다.")
+    if result.get("translated_queries"):
+        with st.expander("판매처별 재검색어"):
+            for seller, query in result["translated_queries"].items():
+                st.text(f"{seller} ({query['language']})  {query['keyword']}")
     for field in ("errors", "shipping_errors"):
         for source, error in result.get(field, {}).items():
             st.warning(f"{source} 조회 실패: {error}")
-    pending = result.get("dispatch_unverified_items", [])
-    if pending:
-        st.caption(f"중국 출고 여부를 확인하지 못한 상품 {len(pending)}개는 결과에서 제외했습니다.")
     items = result["items"]
-    if not items:
+    pending = result.get("dispatch_unverified_items", [])
+    if not items and not pending:
         st.info("표시할 상품이 없습니다.")
+    if items and result["market"] == "CN":
+        st.subheader("중국 본토 출고 확인")
     for item in items:
-        st.text(item["title"])
-        price = item.get("price")
-        amount = f"{price['amount']} {price['currency']}" if price else "가격 미확인"
-        if price and item.get("price_basis") == "min_variant_price":
-            amount += "부터"
-        shipping = item.get("shipping")
-        freight = f"배송비 {shipping['amount']} {shipping['currency']}" if shipping else "배송비 미확인"
-        st.caption(" / ".join(filter(None, [item.get("seller"), amount, freight])))
-        if urlsplit(item["url"] or "").scheme in ("http", "https"):
-            st.link_button("상품 보기", item["url"])
+        show_product(item)
+    if pending:
+        st.subheader("중국 본토 출고 미확인")
+        for item in pending:
+            show_product(item)
     links = result.get("browser_search", {})
     for key, label in (("naver", "네이버에서 검색"), ("danawa", "다나와에서 검색")):
         if links.get(key):
@@ -99,9 +119,12 @@ def main():
             st.info(st.session_state.voice_notice)
     else:
         st.caption("한국어 음성 입력은 로컬 음성 모델을 설치하면 사용할 수 있습니다.")
+    use_ebay = market in EBAY_COUNTRIES and st.checkbox("eBay에서 검색")
+    if market != "KR":
+        st.caption("한국어 검색어와 일치하는 상품명이 없는 해외 판매처는 검색어를 MyMemory로 번역해 다시 조회합니다.")
     with st.form("product_search"):
         keyword = st.text_input("상품명 또는 모델명", key="keyword").strip()
-        postal_code = st.text_input("한국 수령지 우편번호", max_chars=5) if market in EBAY_COUNTRIES else None
+        postal_code = st.text_input("한국 수령지 우편번호", max_chars=5) if use_ebay else None
         submitted = st.form_submit_button("검색", type="primary")
     if submitted:
         st.session_state.pop("last_search", None)
@@ -110,7 +133,7 @@ def main():
             return
         try:
             with st.spinner("상품을 찾고 있습니다."):
-                result = search(market, keyword, postal_code=postal_code)
+                result = search(market, keyword, limit=20 if market == "ALL" else 5, postal_code=postal_code)
         except (URLError, TimeoutError, ValueError, RuntimeError, KeyError) as exc:
             st.error(f"검색을 완료하지 못했습니다. {exc}")
             return

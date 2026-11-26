@@ -36,14 +36,15 @@ def positive_price(value):
     return price if price.is_finite() and price > 0 else None
 
 
-def fiat_rates():
+def fiat_rates(currencies=ECOS_ITEMS):
     key = quote(os.environ.get("ECOS_API_KEY") or "sample", safe="")
     today = datetime.now(KST).date()
     start = today - timedelta(days=9)
     period = f"{start:%Y%m%d}/{today:%Y%m%d}"
     base = f"https://ecos.bok.or.kr/api/StatisticSearch/{key}/json/kr/1/10/731Y001/D/{period}"
-    rates = {code: {"krw_per_unit": None, "rate_date": None} for code in ECOS_ITEMS}
-    for code, (item, units) in ECOS_ITEMS.items():
+    rates = {code: {"krw_per_unit": None, "rate_date": None} for code in currencies}
+    for code in rates:
+        item, units = ECOS_ITEMS[code]
         data = fetch(f"{base}/{item}")
         result = data.get("RESULT", {})
         if result.get("CODE") == "INFO-200":
