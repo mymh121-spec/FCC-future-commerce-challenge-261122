@@ -70,7 +70,8 @@ def show_product(item):
         amount += "부터"
     shipping = item.get("shipping")
     freight = f"배송비 {shipping['amount']} {shipping['currency']}" if shipping else "배송비 미확인"
-    details = [MARKETS.get(item.get("market")), item.get("seller"), amount, freight]
+    details = [MARKETS.get(item.get("market")), item.get("seller"), item.get("model_code"),
+               item.get("color"), amount, freight]
     if item.get("market") in ("AU", "TW"):
         details.append("법정통화 결제")
     if item.get("kr_direct_shipping") == "unverified":
@@ -128,6 +129,7 @@ def main():
         submitted = st.form_submit_button("검색", type="primary")
     if submitted:
         st.session_state.pop("last_search", None)
+        st.session_state.pop("overseas_search", None)
         if not keyword:
             st.warning("검색할 상품명이나 모델명을 입력하세요.")
             return
@@ -143,6 +145,13 @@ def main():
         st.subheader(f"{MARKETS[country]} 검색 결과")
         st.text(term)
         show_results(result)
+        if country == "KR":
+            if st.button("같은 검색어로 해외 판매처 조회"):
+                with st.spinner("해외 판매처에서 상품을 찾고 있습니다."):
+                    st.session_state.overseas_search = search("OVERSEAS", term, limit=20)
+            if overseas := st.session_state.get("overseas_search"):
+                st.subheader("해외 검색 결과")
+                show_results(overseas)
 
 
 if __name__ == "__main__":

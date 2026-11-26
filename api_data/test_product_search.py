@@ -1,3 +1,5 @@
+import io
+import json
 import unittest
 from collections import Counter
 from threading import Barrier
@@ -50,6 +52,44 @@ class ProductSearchTests(unittest.TestCase):
         response = {"responseStatus": 200, "responseData": {"translatedText": "headphones"}}
         with patch.object(search_api, "request_json", return_value=response):
             self.assertEqual(search_api.translate_keyword("WH-1000XM5 헤드폰", "EN"), "headphones WH-1000XM5")
+
+    def test_korean_model_search_uses_exact_style_and_source_price(self):
+        def product(code):
+            return {"productCode": code, "productType": "FOOTWEAR",
+                    "copy": {"title": "테스트 신발", "subTitle": "남성 신발"},
+                    "prices": {"currentPrice": 100, "currency": "KRW"},
+                    "pdpUrl": {"url": "https://www.nike.com/kr/t/test/" + code}}
+
+        variants = [product("AA1234-002"), product("AA1234-001")]
+        wall = {"productGroupings": [{"products": variants}]}
+        data = {"props": {"pageProps": {"initialState": {"Wall": wall}}}}
+        page = '<script id="__NEXT_DATA__" type="application/json">' + json.dumps(data) + "</script>"
+        with patch.object(search_api, "urlopen", return_value=io.BytesIO(page.encode())), \
+                patch.object(search_api, "storefront_page", return_value=([], {"KO"})):
+            result = search_api.search("KR", "aa1234-001")
+        self.assertEqual(result["errors"], {})
+        self.assertEqual([item["model_code"] for item in result["items"]], ["AA1234-001"])
+        self.assertEqual(result["items"][0]["price"], {"amount": "100", "currency": "KRW"})
+
+    def test_domestic_english_search_hides_unrelated_product_on_nike_failure(self):
+        rows = [{"title": "에스프레소 커피 부품"}]
+        with patch.object(search_api, "storefront_page", return_value=(rows, {"KO"})), \
+                patch.object(search_api, "nike_korea", side_effect=TimeoutError("timeout")) as nike:
+            result = search_api.search("KR", "Nike Air Force 1")
+        nike.assert_called_once_with("나이키 에어 포스 1", 5)
+        self.assertEqual(result["items"], [])
+        self.assertIn("나이키 코리아", result["errors"])
+
+    def test_expanding_abroad_only_calls_overseas_stores(self):
+        shops = {"KR": {"local": "국내"}, "CN": {"abroad": "해외"}}
+        rows = [{"market": "CN", "title": "신발", "dispatch_country": None}]
+        with patch.object(search_api, "STOREFRONTS", shops), \
+                patch.object(search_api, "storefront_page", return_value=(rows, {"KO"})) as page, \
+                patch.object(search_api, "nike_korea") as nike:
+            result = search_api.search("OVERSEAS", "신발")
+        page.assert_called_once_with("abroad", "해외", "신발", 5, "CN")
+        nike.assert_not_called()
+        self.assertEqual(result["dispatch_unverified_items"], rows)
 
     def test_model_only_query_skips_translation(self):
         with patch.object(search_api, "storefront_page", return_value=([], {"EN"})), \

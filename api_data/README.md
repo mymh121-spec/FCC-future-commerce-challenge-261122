@@ -4,7 +4,7 @@
 
 | 시장 코드 | 데이터 출처 | 한국 배송 범위 |
 | --- | --- | --- |
-| KR | [Yo! Korea](https://yokorea.store/ko), [Pesado Korea](https://pesado585.co.kr/collections/all) | 한국 시장에 판매 중인 상품의 옵션 최저 표시가와 구매 링크를 조회한다. 배송비와 개별 주소의 배송 가능 여부는 판매처에서 확인한다. |
+| KR | [나이키 코리아](https://www.nike.com/kr/w), [Yo! Korea](https://yokorea.store/ko), [Pesado Korea](https://pesado585.co.kr/collections/all) | 한국 시장에 판매 중인 상품의 옵션 최저 표시가와 구매 링크를 조회한다. 배송비와 개별 주소의 배송 가능 여부는 판매처에서 확인한다. |
 | US, GB | [Yoseka Stationery](https://yosekastationery.com/)와 [Cult Pens](https://cultpens.com/) | 미국과 영국의 문구 판매처에서 한국 시장에 표시하는 상품을 각각 조회한다. 상품별 직배송 여부와 배송비는 주문 전에 확인한다. |
 | DE, FR, IT, ES | [Papier & Stift](https://www.papierundstift.de/), [L’Art du Papier](https://www.art-du-papier.fr/), [San Rocco Italia](https://sanroccoitalia.it/), [Twojeys](https://twojeys.com/) | 각 판매처의 한국 시장용 카탈로그를 조회한다. 판매처 국가는 개별 상품의 출고지를 보장하지 않는다. |
 | JP | [Japanese Taste 한국몰](https://japanesetaste.kr/)과 [SmikieJapan](https://www.smikiejapan.com/ko-kr) | 두 판매처의 한국용 공개 카탈로그에서 재고가 있는 상품과 판매처 표시 통화의 옵션 최저가를 조회한다. |
@@ -73,13 +73,19 @@ python3 api_data/direct_shipping.py JP "말차" --limit 6
 
 ### 국내 상품 검색
 
-저장소 루트에서 다음 명령을 실행하면 두 판매처의 공개 카탈로그를 API 키 없이 조회한다. 생활용품과 의류는 Yo! Korea에서, 커피 도구는 Pesado Korea에서 찾을 수 있다. [Shopify 공개 검색 명세](https://shopify.dev/docs/api/storefront/latest/queries/search)
+검색 화면은 한국에서 시작한다. 국내 결과가 나온 뒤 **같은 검색어로 해외 판매처 조회**를 누르면 국내 결과를 유지하면서 해외 판매처만 검색한다. CLI에서는 시장 코드 `OVERSEAS`로 같은 조회를 실행한다.
+
+나이키, 신발, 에어 포스 또는 나이키 형식의 품번을 입력하면 [나이키 코리아 공개 검색](https://www.nike.com/kr/w)도 병렬로 조회한다. 한국어 상품명과 분류, 색상, 품번을 대조하고 판매처 표시가를 원화로 보여준다. 품번을 입력하면 정확히 같은 품번만 나이키 결과에 담는다. 공개 검색 첫 페이지를 사용하며 사이즈별 재고와 결제 견적은 판매처에서 확인한다.
+
+국내 판매처 검색에는 API 키가 필요하지 않다. 생활용품과 의류는 Yo! Korea에서, 커피 도구는 Pesado Korea에서 찾을 수 있다. [Shopify 공개 검색 명세](https://shopify.dev/docs/api/storefront/latest/queries/search)
 
 ```sh
 python3 api_data/direct_shipping.py KR "커피" --limit 5
+python3 api_data/direct_shipping.py KR "나이키 신발"
+python3 api_data/direct_shipping.py KR CW2288-111
 ```
 
-`items`에는 판매처명과 원화 표시가, 상품 링크, 조회 시각이 담긴다. `price_basis=min_variant_price`는 상품 옵션 중 가장 낮은 표시가다. 판매처별 요청 실패는 `errors`에 기록한다. 두 곳에 상품이 없어도 `browser_search`의 다나와와 네이버 검색 링크로 다른 판매처를 찾아볼 수 있다. 링크를 만드는 데에는 외부 API 호출이나 요금이 발생하지 않는다.
+`items`에는 판매처명과 원화 표시가, 상품 링크, 조회 시각이 담긴다. `price_basis=min_variant_price`는 상품 옵션 중 가장 낮은 표시가다. 판매처별 요청 실패는 `errors`에 기록한다. 국내 조회 결과가 없어도 `browser_search`의 다나와와 네이버 검색 링크로 다른 판매처를 찾아볼 수 있다. 링크를 만드는 데에는 외부 API 호출이나 요금이 발생하지 않는다.
 
 기존 네이버 쇼핑 검색 API는 2026년 7월 31일에 종료됐다. [네이버 공식 공지](https://developers.naver.com/notice/article/32564)
 

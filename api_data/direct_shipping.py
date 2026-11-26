@@ -42,7 +42,7 @@ def credential(name):
     return secret
 
 
-def request_json(url, *, query=None, form=None, json_body=None, headers=None):
+def request_json(url, *, query=None, form=None, json_body=None, headers=None, timeout=15):
     if query:
         url += "?" + urlencode(query)
     data = urlencode(form).encode() if form is not None else None
@@ -51,7 +51,7 @@ def request_json(url, *, query=None, form=None, json_body=None, headers=None):
         headers = {"Content-Type": "application/json", **(headers or {})}
     request = Request(url, data=data, headers={"Accept": "application/json", **(headers or {})})
     try:
-        with urlopen(request, timeout=15) as response:
+        with urlopen(request, timeout=timeout) as response:
             return json.load(response)
     except HTTPError as exc:
         raise RuntimeError(f"{request.host} HTTP {exc.code}") from exc
@@ -117,6 +117,7 @@ def mainland_dispatch(options):
 def storefront_page(host, seller, keyword, limit, market, language="KO"):
     response = request_json(
         f"https://{host}/api/2026-10/graphql.json",
+        timeout=5 if market == "KR" else 15,
         json_body={"query": KR_CATALOG_QUERY, "variables": {"query": keyword, "limit": limit,
                   "withOrigin": market == "CN", "language": language}},
     )
@@ -148,6 +149,61 @@ def title_matches(title, keyword):
     return bool(terms) and all(term in title for term in terms)
 
 
+NIKE_STYLE = re.compile(r"\b[A-Z0-9]{2}\d{4}-\d{3}\b", re.I)
+
+
+def nike_query(keyword):
+    term = unicodedata.normalize("NFKC", keyword).casefold()
+    term = re.sub(r"\bnike\b", "나이키", term)
+    term = re.sub(r"\bair\s*force\s*(?=1)|에어\s*포스\s*(?=1)", "에어 포스 ", term)
+    term = re.sub(r"\b(?:shoes?|sneakers?)\b|운동화", "신발", term)
+    if re.search(r"나이키|에어 포스|신발", term) or NIKE_STYLE.search(term):
+        return term
+
+
+def nike_korea(keyword, limit):
+    url = "https://www.nike.com/kr/w?" + urlencode({"q": keyword})
+    request = Request(url, headers={"User-Agent": "FCC-catalog/1.0"})
+    with urlopen(request, timeout=5) as response:
+        page = response.read().decode("utf-8")
+    data = re.search(r'<script\b[^>]*\bid=["\']__NEXT_DATA__["\'][^>]*>(.*?)</script>', page, re.S)
+    if not data:
+        raise ValueError("나이키 코리아 상품 목록을 읽을 수 없습니다.")
+    wall = json.loads(data[1])["props"]["pageProps"]["initialState"]["Wall"]
+    groups = [group["products"] for group in wall["productGroupings"] if group.get("products")]
+    codes = {code.upper() for code in NIKE_STYLE.findall(keyword)}
+    checked_at = datetime.now(timezone.utc).isoformat()
+    rows = []
+    seen = set()
+    # Show different models before additional colours of the same model.
+    for variants in zip_longest(*groups):
+        for product in filter(None, variants):
+            code = product["productCode"]
+            if code in seen or (codes and code not in codes):
+                continue
+            name = product["copy"]["title"]
+            category = product["copy"]["subTitle"]
+            color = product.get("displayColors", {}).get("colorDescription", "")
+            labels = [name, category, code, color, "나이키"]
+            if product.get("productType") == "FOOTWEAR":
+                labels.append("신발")
+            price = product["prices"]
+            link = product["pdpUrl"]["url"]
+            if not (title_matches(" ".join(labels), keyword) and link.startswith("https://www.nike.com/kr/t/")
+                    and price["currency"] == "KRW" and price.get("currentPrice") is not None):
+                continue
+            seen.add(code)
+            row = offer(name, link, money(price["currentPrice"], "KRW"), None,
+                        "seller_check_required", kr_direct_shipping="not_applicable")
+            row.update(market="KR", seller="나이키 코리아", model_code=code, color=color,
+                       category=category, price_source="seller_catalog", price_basis="listed_price",
+                       checked_at=checked_at)
+            rows.append(row)
+            if len(rows) == limit:
+                return rows
+    return rows
+
+
 def translate_keyword(keyword, language):
     if len(keyword.encode("utf-8")) > 500:
         raise ValueError("번역할 검색어가 500바이트를 넘습니다.")
@@ -168,7 +224,10 @@ def translate_keyword(keyword, language):
 
 
 def storefront_search(market, keyword, limit):
-    markets = STOREFRONTS if market == "ALL" else {market: STOREFRONTS[market]}
+    if market == "OVERSEAS":
+        markets = {country: stores for country, stores in STOREFRONTS.items() if country != "KR"}
+    else:
+        markets = STOREFRONTS if market == "ALL" else {market: STOREFRONTS[market]}
     stores = [(country, host, seller) for country, shops in markets.items() for host, seller in shops.items()]
     batches = {}
     errors = {}
@@ -176,6 +235,8 @@ def storefront_search(market, keyword, limit):
     translations = {}
     korean = bool(re.search(r"[가-힣]", keyword))
     with ThreadPoolExecutor(max_workers=6) as pool:
+        nike_term = nike_query(keyword) if "KR" in markets else None
+        nike = pool.submit(nike_korea, nike_term, limit) if nike_term else None
         first = {seller: pool.submit(storefront_page, host, seller, keyword, limit, country)
                  for country, host, seller in stores}
         for country, host, seller in stores:
@@ -184,7 +245,7 @@ def storefront_search(market, keyword, limit):
             except SEARCH_ERRORS as exc:
                 errors[seller] = str(exc)
                 continue
-            if korean:
+            if korean or country == "KR":
                 rows = [row for row in rows if title_matches(row["title"], keyword)]
             batches[seller] = rows
             if rows or not korean or country == "KR":
@@ -215,6 +276,12 @@ def storefront_search(market, keyword, limit):
             except SEARCH_ERRORS as exc:
                 errors[seller] = str(exc)
 
+        if nike:
+            try:
+                batches["나이키 코리아"] = nike.result()
+            except SEARCH_ERRORS as exc:
+                errors["나이키 코리아"] = str(exc)
+
     items = [row for group in zip_longest(*batches.values()) for row in group if row is not None]
     result = {"market": market, "destination_country": "KR", "errors": errors, "translated_queries": queries}
     if market in ("AU", "TW"):
@@ -228,7 +295,7 @@ def storefront_search(market, keyword, limit):
             "naver": "https://search.naver.com/search.naver?" + query,
         }
     selected = items[:limit]
-    if market in ("ALL", "CN"):
+    if market in ("ALL", "OVERSEAS", "CN"):
         result["dispatch_unverified_items"] = [row for row in selected
                                                if row["market"] == "CN" and row["dispatch_country"] is None]
         selected = [row for row in selected if row["market"] != "CN" or row["dispatch_country"] is not None]
@@ -398,14 +465,14 @@ def search(market, keyword, limit=5, postal_code=None):
             except SEARCH_ERRORS as exc:
                 result["errors"] = {"eBay": str(exc)}
         return result
-    if market == "ALL" or market in STOREFRONTS:
+    if market in ("ALL", "OVERSEAS") or market in STOREFRONTS:
         return storefront_search(market, keyword, limit)
     raise ValueError(f"지원하지 않는 시장 {market}")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("market", choices=("ALL", *STOREFRONTS))
+    parser.add_argument("market", choices=("ALL", "OVERSEAS", *STOREFRONTS))
     parser.add_argument("keyword")
     parser.add_argument("--postal-code", help="한국 수령지 우편번호 (eBay 필수)")
     parser.add_argument("--limit", type=int, default=5)
